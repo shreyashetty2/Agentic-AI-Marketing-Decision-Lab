@@ -1,0 +1,26 @@
+# --- Data (never commit; each member downloads from dunnhumby) ---
+data/
+*.duckdb
+*.duckdb.wal
+
+# --- Secrets ---
+.env
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- Experiment tracking / artifacts ---
+mlruns/
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
