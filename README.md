@@ -1,8 +1,9 @@
 # Agentic-AI-Marketing-Decision-Lab
 Agentic AI Marketing Decision Lab capstone project with TD Bank
+
 Columbia University · ENGI E4800 Data Science Capstone · Fall 2026
 
-> **Status:** Draft — work in progress. Structure, methods, and tooling will evolve as the project develops.
+> **Status:** Draft. Structure, methods, and tooling will evolve as the project develops.
 
 ---
 
