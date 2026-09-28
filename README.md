@@ -54,6 +54,100 @@ We use **dunnhumby — The Complete Journey**: about 2 years (102 weeks) of hous
 - **Campaigns are targeted, not randomized.** Response estimates are predictive, not causal.
 - **`day` and `week_no` are relative indices, not calendar dates.**
 
+
+
+---
+
+## ML Question and System Flow
+
+### Prediction Question 1: Campaign Response Probability
+For a given household level and campaign, what is the probability that the household will redeem at least one coupon from that campaign?
+- Unit: one household and one campaign.
+- Output: a probability from 0% to 100%.
+- Example: Household 1234, TypeB campaign: 34% chance of redeeming.
+- Training data: 7,208 past household-campaign mailings, of which 889 (12.3%) had at least one redemption.
+
+### Prediction Question 2: Expected Financial Value
+For a given household and campaign, what is the expected net revenue (total sales value minus the retailer's coupon match cost) the household will generate if they engage with the campaign?
+- Unit: one household and one campaign.
+- Output: a continuous dollar amount ($).
+- Example: Household 1234, TypeB campaign: Expected net value of $42.50.
+- Training data: Historical transactions (transaction_data) for the 889 household-campaign pairings that had a redemption, calculating the sum of SALES_VALUE minus COUPON_MATCH_DISC during the campaign's active days.
+
+### Prediction Question 3: True Incremental Uplift
+For a given household and campaign, how much does receiving the campaign actually increase the household's likelihood of purchasing the targeted products, compared to their baseline behavior if we sent them nothing?
+- Unit: one household and one campaign.
+Output: an incremental probability percentage (which can be positive, zero, or negative).
+- Example: Household 1234, TypeB campaign: +12% incremental lift (meaning the household already had a 40% organic chance to buy the product, but the campaign pushes their total probability to 52%).
+- Training data: A comparison of household purchase frequencies for targeted PRODUCT_IDs during active campaign windows (START_DAY to END_DAY) versus their historical purchase frequencies in the weeks prior to the campaign.
+
+
+
+## System Flow
+```
+Raw data
+- 8 dunnhumby CSV files (transactions, campaigns, coupons, redemptions, products, demographics, promotions)
+   │
+   ▼
+Step 1: Data Agent
+- Input: raw CSV files
+- Task: checks and cleans the data, for example that every redemption matches a campaign the household was mailed, and that demographics exist for only 801 of the 2,500 households
+- Decides: which issues to fix and which to flag
+- Output: clean tables and a data quality report, sent to the Feature Agent
+   │
+   ▼
+Step 2: Feature Agent
+- Input: clean tables
+- Task: builds one row for each household that was mailed a campaign (7,208 rows). Each row holds the household's behavior before the campaign started (weekly spend, visits, past redemptions, share of discounted purchases), the campaign type, and whether the household redeemed at least one coupon during the campaign
+- Decides: which household features to build
+- Output: training table, sent to the Modeling Agent
+   │
+   ▼
+Step 3: Modeling Agent
+- Input: training table
+- Task: trains models on the earlier campaigns
+- Decides: which models to try (for example logistic regression and LightGBM) and how to tune them
+- Output: trained models, sent to the Evaluation Agent
+   │
+   ▼
+Step 4: Evaluation Agent
+- Input: trained models
+- Task: tests the models on the later campaigns, measuring what share of actual redeemers fall in the top 20% of households by score
+- Decides: whether the model is good enough, and if not, whether to go back to Step 2 (features) or Step 3 (models)
+- Output: feedback to Step 2 or Step 3, or the final model and an evaluation report, sent to Step 5
+   │
+   ▼
+Step 5: Scoring
+- Input: final model and each household's latest data
+- Task: calculates the redemption probability for every household for a new campaign of each type (TypeA, TypeB, TypeC)
+- Output: household scores, used by the Decision Lab
+   │
+   ▼
+Step 6: Decision Lab (application)
+- Input: the marketer's choices (campaign type, number of households to target)
+- Task: ranks households by score and selects the w was top households
+- Output: target list and expected number of redemptions and expected cost of discounts
+   │
+   ▼
+Step 7: Decision Support Agent
+- Input: the marketer's question in the Decision Lab, for example "How many more redemptions would we get by targeting 1,000 households instead of 500?"
+- Task: retrieves the relevant results and explains them in plain language
+- Decides: which results answer the question
+- Output: answer shown in the Decision Lab
+
+### Note:
+- Prediction timing: 
+If we make predictions immediately before a campaign starts, household features should use only data available before START_DAY
+- Evaluation benchmark:
+Maybe compare the model’s top-20% targeting performance with random selection and a simple rule based on past redemptions
+- Agent decisions:
+Which data issues can agents handle automatically, and which should be flagged for team review? 
+- Potential Ultimate Business Qs Answered (Tentative): When the models and agents are deployed into the AI Marketing Decision Lab, the integrated model will be able to answer the following strategic questions in natural language --  
+   - Targeting Strategy: "Which demographic segment (e.g., Homeowners with Kids in Group 4) yields the highest response rate for Type A campaigns?"   
+   - Model Explainability: "Why did the model predict this customer has a 10% chance of redeeming the frozen pizza coupon?" (The agent will explain that the household's transaction history shows no purchases in that COMMODITY_DESC over the last year).   
+   - Scenario Trade-Offs (What-If Analysis): "If we target 5,000 extra households, how does that impact our overall campaign budget?" (The agent will calculate the projected increase in COUPON_MATCH_DISC payouts versus the anticipated rise in overall SALES_VALUE).   
+   - Omnichannel Impact (Tentative - need to discuss how this will be included in our model): "Did featuring this product on a 'Front End Cap' in-store display increase the coupon redemption rate compared to relying on direct mail alone?"  
+```
 ---
 
 ## System Architecture (proposed)
