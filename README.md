@@ -134,6 +134,7 @@ Step 7: Decision Support Agent
 - Task: retrieves the relevant results and explains them in plain language
 - Decides: which results answer the question
 - Output: answer shown in the Decision Lab
+```
 
 ### Note:
 - Prediction timing: 
@@ -147,7 +148,7 @@ Which data issues can agents handle automatically, and which should be flagged f
    - Model Explainability: "Why did the model predict this customer has a 10% chance of redeeming the frozen pizza coupon?" (The agent will explain that the household's transaction history shows no purchases in that COMMODITY_DESC over the last year).   
    - Scenario Trade-Offs (What-If Analysis): "If we target 5,000 extra households, how does that impact our overall campaign budget?" (The agent will calculate the projected increase in COUPON_MATCH_DISC payouts versus the anticipated rise in overall SALES_VALUE).   
    - Omnichannel Impact (Tentative - need to discuss how this will be included in our model): "Did featuring this product on a 'Front End Cap' in-store display increase the coupon redemption rate compared to relying on direct mail alone?"  
-```
+
 ---
 
 ## System Architecture (proposed)
