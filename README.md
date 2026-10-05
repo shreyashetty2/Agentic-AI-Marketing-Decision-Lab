@@ -55,11 +55,9 @@ We use **dunnhumby — The Complete Journey**: about 2 years (102 weeks) of hous
 - **Campaigns are targeted, not randomized.** Response estimates are predictive, not causal. (Confirmed directly in the data for the uplift model: treated households spend ~4.6x more, pre-campaign, than control households.)
 - **`day` and `week_no` are relative indices, not calendar dates.**
 
-
-
 ---
 
-## ML Question and System Flow
+## ML Questions
 
 ### Prediction Question 1: Campaign Response Probability
 For a given household level and campaign, what is the probability that the household will redeem at least one coupon from that campaign?
@@ -131,107 +129,64 @@ For a given household and campaign, how much does receiving the campaign actuall
 
 **Key business finding (the value-add over Model 1):** current campaigns disproportionately target the heaviest, most loyal spenders, who tend to buy the product anyway — a propensity model (Model 1) would misallocate budget to them because their overall purchase probability is high. Untargeted, moderate-spending households show the largest actual response gap between "mailed" and "not mailed." Uplift modeling isolates this true incremental impact to drive real incremental revenue, which Model 1 alone cannot surface.
 
+---
 
+## System Flow & Architecture
 
-## System Flow
+One shared agent pipeline answers all three prediction questions — every agent does the same job, in the same way, for every model; only the instructions it receives (which campaigns, which rows, which target, which evaluation metric) change per model. Core computation stays in deterministic, tested Python functions; agents orchestrate those tools and produce reports, which keeps results reproducible and agent performance measurable.
+
 ```
-Raw data
-- 8 dunnhumby CSV files (transactions, campaigns, coupons, redemptions, products, demographics, promotions)
+Raw data (8 dunnhumby CSV files)
    │
    ▼
 Step 1: Data Agent
-- Input: raw CSV files
-- Task: checks and cleans the data, for example that every redemption matches a campaign the household was mailed, and that demographics exist for only 801 of the 2,500 households
-- Decides: which issues to fix and which to flag
-- Output: clean tables and a data quality report, sent to the Feature Agent
-- Progress: first-draft ingestion script built and run successfully on all 8 real files (2.6M transaction rows, 36.8M display/mailer rows); produces clean tables + a data quality report
    │
    ▼
 Step 2: Feature Agent
-- Input: clean tables
-- Task: builds one row for each household that was mailed a campaign (7,208 rows). Each row holds the household's behavior before the campaign started (weekly spend, visits, past redemptions, share of discounted purchases), the campaign type, and whether the household redeemed at least one coupon during the campaign
-- Decides: which household features to build
-- Output: training table, sent to the Modeling Agent
    │
    ▼
 Step 3: Modeling Agent
-- Input: training table
-- Task: trains models on the earlier campaigns
-- Decides: which models to try (for example logistic regression and LightGBM) and how to tune them
-- Output: trained models, sent to the Evaluation Agent
    │
    ▼
-Step 4: Evaluation Agent
-- Input: trained models
-- Task: tests the models on the later campaigns, measuring what share of actual redeemers fall in the top 20% of households by score
-- Decides: whether the model is good enough, and if not, whether to go back to Step 2 (features) or Step 3 (models)
-- Output: feedback to Step 2 or Step 3, or the final model and an evaluation report, sent to Step 5
+Step 4: Evaluation Agent  ──(feedback)──▶ back to Step 2 or Step 3
    │
    ▼
 Step 5: Scoring
-- Input: final model and each household's latest data
-- Task: calculates the redemption probability for every household for a new campaign of each type (TypeA, TypeB, TypeC)
-- Output: household scores, used by the Decision Lab
    │
    ▼
 Step 6: Decision Lab (application)
-- Input: the marketer's choices (campaign type, number of households to target)
-- Task: ranks households by score and selects the w was top households
-- Output: target list and expected number of redemptions and expected cost of discounts
    │
    ▼
 Step 7: Decision Support Agent
-- Input: the marketer's question in the Decision Lab, for example "How many more redemptions would we get by targeting 1,000 households instead of 500?"
-- Task: retrieves the relevant results and explains them in plain language
-- Decides: which results answer the question
-- Output: answer shown in the Decision Lab
 ```
 
-### Note:
-- Prediction timing: 
-If we make predictions immediately before a campaign starts, household features should use only data available before START_DAY
-- Evaluation benchmark:
-Maybe compare the model’s top-20% targeting performance with random selection and a simple rule based on past redemptions
-- Agent decisions:
-Which data issues can agents handle automatically, and which should be flagged for team review? 
-- Potential Ultimate Business Qs Answered (Tentative): When the models and agents are deployed into the AI Marketing Decision Lab, the integrated model will be able to answer the following strategic questions in natural language --  
-   - Targeting Strategy: "Which demographic segment (e.g., Homeowners with Kids in Group 4) yields the highest response rate for Type A campaigns?"   
-   - Model Explainability: "Why did the model predict this customer has a 10% chance of redeeming the frozen pizza coupon?" (The agent will explain that the household's transaction history shows no purchases in that COMMODITY_DESC over the last year).   
-   - Scenario Trade-Offs (What-If Analysis): "If we target 5,000 extra households, how does that impact our overall campaign budget?" (The agent will calculate the projected increase in COUPON_MATCH_DISC payouts versus the anticipated rise in overall SALES_VALUE).   
-   - Omnichannel Impact (Tentative - need to discuss how this will be included in our model): "Did featuring this product on a 'Front End Cap' in-store display increase the coupon redemption rate compared to relying on direct mail alone?"  
+**Step 1 — Data Agent.** Input: raw CSV files. Task: cleans and checks all 8 files against one shared rulebook (expected columns, checks, whether to fix/flag/stop) — for example, that every redemption matches a campaign the household was mailed, and that demographics exist for only 801 of the 2,500 households. Decides: which issues to fix automatically and which to flag for team review. Output: clean tables and a data quality report, sent to the Feature Agent. **Progress:** first-draft ingestion script built and run successfully on all 8 real files (2.6M transaction rows, 36.8M display/mailer rows).
 
----
+**Step 2 — Feature Agent.** Input: clean tables. Task: builds one shared table of 75,000 rows (2,500 households × 30 campaigns), holding each household's pre-campaign behavior (spend, visits, past redemptions, category affinity) plus every model's target column. Decides: which household features to build. Output: training table, sent to the Modeling Agent. Each model's instructions pick which campaigns, rows, and target column to use:
 
-## System Architecture
+| Model | Campaigns | Rows | Target column |
+|---|---|---|---|
+| 1. Response | All 30 | Mailed: 7,208 | Redeemed (yes/no) |
+| 2. Expected value | All 30 (or TypeB/C) | Redeemed: 889 (TypeB/C: 254) | Spend on campaign products ($) |
+| 3. Uplift | TypeB/C only (25) | Mailed and not mailed: 43,396 | Bought a campaign product (yes/no) |
 
-```
-Raw CSVs
-   │
-   ▼
-[1] Data Ingestion Agent ─ profiling, validation, cleaning → DuckDB / Parquet
-   │
-   ▼
-[2] Feature Engineering Agent ─ household × campaign feature table, leakage checks
-   │
-   ▼
-[3] Model Development Agent ─ baselines → advanced models, tuning, comparison
-   │
-   ▼
-[4] Model Evaluation Agent ─ metrics, validation, model card, final recommendation
-   │
-   ▼
-Model API (REST) ─ /score  /scenario  /explain
-   │
-   ▼
-[5] Decision Lab UI ─ segments, campaign config, budgets, what-if, dashboards
-   │
-   ▼
-[6] Decision Support Agent (LLM) ─ explanations, drivers, scenario comparison, recommendations
-```
+**Step 3 — Modeling Agent.** Input: training table. Task: reshapes the table for the model type being trained (e.g. yes/no columns and similarly-scaled numbers for logistic regression; near-as-is for a boosting model — same information, different format), then trains and tunes on the earlier campaigns. Decides: which model(s) to try and how to tune them. Output: trained model(s), sent to the Evaluation Agent.
 
-**Design principle:** core computation stays in deterministic, tested Python functions. Agents orchestrate those tools and produce reports, which keeps results reproducible and agent performance measurable.
+**Step 4 — Evaluation Agent.** Input: trained model(s). Task: tests on the later campaigns and compares against a baseline. Decides: approve, or send feedback back to Step 2 (features) or Step 3 (modeling). Output: feedback, or the final model and an evaluation report, sent to Step 5.
 
-**One agent architecture serves all three prediction questions.** Each agent does the same job in the same way for every model — only the instructions it receives change with the model:
+| Model | Modeling instructions | Evaluation instructions |
+|---|---|---|
+| 1. Response | Yes/no models (e.g. logistic regression, LightGBM) | Redeemers caught in the top 20%, vs. "redeemed before" |
+| 2. Expected value | Dollar models (e.g. linear regression) | Average dollar error, vs. usual spend |
+| 3. Uplift | Two models (mailed, not mailed); uplift = difference | Qini curve, vs. random targeting |
+
+**Step 5 — Scoring.** Input: final model(s) and each household's latest data. Task: calculates each model's score for every household, for a new campaign of each type (TypeA, TypeB, TypeC). Output: household scores, used by the Decision Lab.
+
+**Step 6 — Decision Lab (application).** Input: the marketer's choices (campaign type, number of households to target). Task: ranks households by score and selects the top households. Output: target list, expected number of redemptions, and expected cost of discounts.
+
+**Step 7 — Decision Support Agent.** Input: the marketer's question in the Decision Lab, e.g. "How many more redemptions would we get by targeting 1,000 households instead of 500?" Task: retrieves the relevant results and explains them in plain language. Decides: which results answer the question. Output: answer shown in the Decision Lab.
+
+**Why each agent is shared, not model-specific:**
 
 | Agent | Shared because... |
 |---|---|
@@ -243,29 +198,17 @@ Model API (REST) ─ /score  /scenario  /explain
 | 6. Decision Lab | One application; each score is a column it can rank by or add up. |
 | 7. Decision Support | Same tools to look up and explain results; it is told what each score means. |
 
-Model 3 plugs its own method (two models: mailed and not mailed) and its own evaluation (Qini curve) into the shared Modeling and Evaluation agents.
+Model 3 plugs its own method (two models: mailed and not mailed) and its own evaluation (Qini curve) into the same shared Modeling and Evaluation agents — no model-specific agent classes needed.
 
-**Data Agent.** Cleans and checks all 8 files, and checks that they agree with each other, against one cleaning rulebook for the whole dataset (expected columns, checks, and whether to fix, flag, or stop) — the same for every model, because the data is the same.
-
-**Feature Agent.** Builds one shared table of 75,000 rows (2,500 households × 30 campaigns), holding features from before each campaign and every model's target, including Model 3's purchase outcome with display-driven purchases excluded. Each model's instructions say which campaigns, rows, and target column to keep:
-
-| Model | Campaigns | Rows | Target column |
-|---|---|---|---|
-| 1. Response | All 30 | Mailed: 7,208 | Redeemed (yes/no) |
-| 2. Expected value | All 30 (or TypeB/C) | Redeemed: 889 (TypeB/C: 254) | Spend on campaign products ($) |
-| 3. Uplift | TypeB/C only (25) | Mailed and not mailed: 43,396 | Bought a campaign product (yes/no) |
-
-**Modeling Agent.** Reshapes the table for each model type (e.g. logistic regression needs yes/no columns and similarly-scaled numbers; a boosting model uses the table almost as-is — same information, different format), then trains and tunes on the earlier campaigns.
-
-**Evaluation Agent.** Tests the models on the later campaigns, compares against a baseline, and decides: approve, or send feedback back to features or modeling.
-
-| Model | Modeling instructions | Evaluation instructions |
-|---|---|---|
-| 1. Response | Yes/no models (e.g. logistic regression, LightGBM) | Redeemers caught in the top 20%, vs. "redeemed before" |
-| 2. Expected value | Dollar models (e.g. linear regression) | Average dollar error, vs. usual spend |
-| 3. Uplift | Two models (mailed, not mailed); uplift = difference | Qini curve, vs. random targeting |
-
-**Scoring, Decision Lab, Decision Support (steps 5–7)** are fully shared; each model adds one score column to the same table (e.g. Model 1 × Model 2 = expected value).
+### Notes
+- **Prediction timing:** if predictions are made immediately before a campaign starts, household features must use only data available before `START_DAY` (no leakage).
+- **Evaluation benchmark:** compare each model's performance against random selection and a simple rule based on past redemptions.
+- **Agent decisions:** which data issues can agents handle automatically, and which should be flagged for team review?
+- **Potential ultimate business Qs answered (tentative):** once deployed, the Decision Lab should answer strategic questions in natural language, e.g.:
+  - *Targeting strategy:* "Which demographic segment (e.g., Homeowners with Kids in Group 4) yields the highest response rate for TypeA campaigns?"
+  - *Model explainability:* "Why did the model predict this customer has a 10% chance of redeeming the frozen pizza coupon?" (the agent explains the household has no purchases in that `COMMODITY_DESC` over the last year).
+  - *Scenario trade-offs (what-if):* "If we target 5,000 extra households, how does that impact our overall campaign budget?" (the agent projects the increase in `COUPON_MATCH_DISC` payouts vs. the rise in `SALES_VALUE`).
+  - *Omnichannel impact (tentative):* "Did featuring this product on a 'Front End Cap' in-store display increase coupon redemption compared to direct mail alone?"
 
 ---
 
@@ -281,13 +224,14 @@ Model 3 plugs its own method (two models: mailed and not mailed) and its own eva
 │   └── processed/
 ├── notebooks/                # EDA and experiments (prefix with initials + number, e.g. jw_01_eda.ipynb)
 ├── src/
-│   ├── ingestion/            # Step 1 — Data Ingestion Agent + tools
-│   ├── features/             # Step 2 — Feature Engineering Agent + tools
-│   ├── modeling/             # Step 3 — Model Development Agent + tools
-│   ├── evaluation/           # Step 4 — Model Evaluation Agent + tools
+│   ├── ingestion/            # Step 1 — Data Agent + tools
+│   ├── features/             # Step 2 — Feature Agent + tools
+│   ├── modeling/             # Step 3 — Modeling Agent + tools
+│   ├── evaluation/           # Step 4 — Evaluation Agent + tools
+│   ├── scoring/              # Step 5 — Scoring + tools
 │   ├── api/                  # Model-serving REST API
-│   ├── app/                  # Step 5 — Decision Lab UI
-│   └── agents/               # Step 6 — Decision Support Agent + shared agent utilities
+│   ├── app/                  # Step 6 — Decision Lab UI
+│   └── agents/               # Step 7 — Decision Support Agent + shared agent utilities
 ├── tests/
 ├── reports/                  # weekly write-ups, midterm/final reports, figures
 └── docs/                     # design notes, data dictionary, meeting notes
