@@ -47,11 +47,12 @@ We use **dunnhumby — The Complete Journey**: about 2 years (102 weeks) of hous
 **Main join keys:** `household_key`, `campaign`, `product_id`, `coupon_upc`, `(product_id, store_id, week_no)`.
 
 ### Known data caveats
-- **Demographics are partial.** Demographics exist for only a subset of households, so any demographic analysis is a subsample analysis.
+- **Demographics are partial.** Demographics exist for only a subset of households (801 of 2,500, 32%), so any demographic analysis is a subsample analysis.
 - **The user guide's `hh_demographic` variable table is incorrect.** Use the actual CSV headers.
-- **Discount columns are stored as negative values.** `sales_value` is what the retailer receives, not what the customer paid.
-- **TypeA exposure is unobservable.** TypeA campaigns send each household a personalized 16-coupon subset, and which coupons each household received is not recorded.
-- **Campaigns are targeted, not randomized.** Response estimates are predictive, not causal.
+- **Discount columns are stored as negative values.** `sales_value` is what the retailer receives, not what the customer paid, and already has the retailer's coupon-match discount reflected in it — subtracting `coupon_match_disc` again double-counts it. (Caught in the proposal's original net-revenue formula; Model 2 now uses `sales_value` directly.)
+- **TypeA exposure is unobservable.** Each TypeA household receives only 16 coupons, personally selected from a pool of ~181–209 products (about 8% of the pool), and which 16 is not recorded. Model 2 and Model 3 scope their campaign-related/eligible-product targets to TypeB/TypeC campaigns for this reason; TypeA remains an open methodological question for both.
+- **Campaigns overlap heavily and aren't in date order.** 74 of 435 campaign pairs overlap in time. Train/test splits must be built by date (`START_DAY`), not by campaign ID.
+- **Campaigns are targeted, not randomized.** Response estimates are predictive, not causal. (Confirmed directly in the data for the uplift model: treated households spend ~4.6x more, pre-campaign, than control households.)
 - **`day` and `week_no` are relative indices, not calendar dates.**
 
 
@@ -65,21 +66,70 @@ For a given household level and campaign, what is the probability that the house
 - Unit: one household and one campaign.
 - Output: a probability from 0% to 100%.
 - Example: Household 1234, TypeB campaign: 34% chance of redeeming.
-- Training data: 7,208 past household-campaign mailings, of which 889 (12.3%) had at least one redemption.
+- Training data: 7,208 past household-campaign mailings, of which 889 (12.33%) had at least one redemption — matches the original proposal exactly.
+- Population: 2,500 households, 2 years (711 days) of history, demographics available for 801 (32%).
+
+**Redemption rate by campaign type** (confirms why campaign type is a key feature):
+
+| | TypeA | TypeB | TypeC |
+|---|---|---|---|
+| How coupons are assigned | Personalized — 16 coupons picked from a larger pool | Everyone in the campaign gets **all** of the campaign's coupons | Everyone in the campaign gets **all** of the campaign's coupons |
+| Coupons per campaign | 181–209 in the pool (household sees 16, ~8%) | 2–33 | 1–34 |
+| Number of campaigns | 5 | 19 | 6 |
+| Typical length (days) | 41–56 (median 48) | 33–62 (median 33) | 33–162 (median 65) |
+| Mailings (household × campaign) | 3,979 (55% of all) | 2,655 (37%) | 574 (8%) |
+| Mailings per campaign (avg) | ~800 | ~140 | ~95 |
+| Redemption rate | **16.0%** (635 of 3,979) | **7.9%** (210 of 2,655) | **7.7%** (44 of 574) |
+| Share of all redeemers | 71% | 24% | 5% |
+
+**Files needed (all verified against real row counts):**
+
+| File | Rows | Role | Needed? |
+|---|---|---|---|
+| `campaign_table` | 7,208 | Defines rows: who was mailed which campaign | Required |
+| `campaign_desc` | 30 | Campaign type, start/end day (the time cutoff) | Required |
+| `coupon_redempt` | 2,318 | Defines label: did the household redeem? | Required |
+| `transaction_data` | 2,595,732 | Purchase history, main source of features | Required |
+| `product` | 92,353 | Product categories for category/brand features | Required |
+| `coupon` | 124,548 | Which products each campaign's coupons cover | Required |
+| `hh_demographic` | 801 | Demographic features for the 32% who have them | Optional |
+| `causal_data` | 36,786,524 | In-store displays and weekly mailer features | Not for v1 |
 
 ### Prediction Question 2: Expected Financial Value
-For a given household and campaign, what is the expected net revenue (total sales value minus the retailer's coupon match cost) the household will generate if they engage with the campaign?
+For a given household and campaign, what is the expected net revenue the household will generate from campaign-related products if they engage with the campaign?
 - Unit: one household and one campaign.
 - Output: a continuous dollar amount ($).
 - Example: Household 1234, TypeB campaign: Expected net value of $42.50.
-- Training data: Historical transactions (transaction_data) for the 889 household-campaign pairings that had a redemption, calculating the sum of SALES_VALUE minus COUPON_MATCH_DISC during the campaign's active days.
+- **Target (corrected from the original proposal):** sum of `SALES_VALUE` for campaign-related products during `START_DAY`–`END_DAY`. `SALES_VALUE` is used **directly**, with no further subtraction — the original proposal's formula subtracted `COUPON_MATCH_DISC` again, but that discount is already reflected in `SALES_VALUE`, so subtracting it double-counts it (see [Known data caveats](#known-data-caveats)).
+- **Predictive model:** regression on redeemed household × campaign pairs.
+- **Defining campaign-related value:**
+  - **TypeB/TypeC only:** 254 redeemed pairs with known coupon exposure — a clean, well-defined campaign-related-product target.
+  - **TypeA:** the exact 16 coupons each household received are unobserved, so household-level product exposure is uncertain. Open methodological question: investigate alternative ways to operationalize the Model 2 target for TypeA.
 
 ### Prediction Question 3: True Incremental Uplift
 For a given household and campaign, how much does receiving the campaign actually increase the household's likelihood of purchasing the targeted products, compared to their baseline behavior if we sent them nothing?
 - Unit: one household and one campaign.
-Output: an incremental probability percentage (which can be positive, zero, or negative).
+- Output: an incremental probability percentage (which can be positive, zero, or negative).
 - Example: Household 1234, TypeB campaign: +12% incremental lift (meaning the household already had a 40% organic chance to buy the product, but the campaign pushes their total probability to 52%).
-- Training data: A comparison of household purchase frequencies for targeted PRODUCT_IDs during active campaign windows (START_DAY to END_DAY) versus their historical purchase frequencies in the weeks prior to the campaign.
+
+**Modeling objective:** estimate the *incremental* effect of mailing a campaign — how much more likely a household is to buy eligible products *because of the mailer*, beyond their organic baseline habit (what they'd buy anyway) or their response to in-store promotions.
+
+**Observation level:** one household × one campaign — **scoped to TypeB/TypeC campaigns** (25 of 30 campaigns, 3,229 mailings, 45% of all mailings).
+- *Scope rationale:* TypeB/TypeC households receive every coupon in the campaign, so we know exactly what they could redeem. TypeA households receive only 16 untracked coupons from a pool of 17,000–35,000 products — testing the full pool as "eligible" produced a 96% false-positive conversion rate in trial testing, since that's effectively measuring "did this household shop at all." TypeA is out of scope for v1.
+
+**Target/outcome:** binary (1/0) — did the household purchase an eligible product (`PRODUCT_ID`s from `coupon`) during the active campaign window, **excluding** purchases that occurred while the product was concurrently featured on an in-store display or in a weekly mailer/circular (the `causal_data` confounder filter)?
+
+**Data feasibility — treatment, control, and the confounder:**
+- **Treatment group:** households mailed this campaign (verified against `campaign_table`).
+- **Control group:** households not mailed this campaign, and not mailed any other campaign whose window overlaps it (verified against `campaign_table` + `campaign_desc`, since campaigns overlap heavily — see [Known data caveats](#known-data-caveats)).
+- **Confounder filter:** `causal_data` joined to `transaction_data` on shared `PRODUCT_ID`/`STORE_ID`/`WEEK_NO` keys flags purchases driven by in-store displays or circulars, isolating direct-mail influence from baseline organic habit and store-level promotions.
+- **Limitation:** campaign targeting is non-random — treated households spend ~4.6x more, pre-campaign, than control households. This is framed as **uplift modeling that adjusts for observed confounders**, not a randomized-experiment causal estimate.
+
+**Methodology:** T-Learner (two-learner) architecture — Model T (treated households) and Model C (control households) trained independently; `Uplift = P(buy | Treatment) − P(buy | Control)`. Preferred over a single (S-learner) model, which tends to ignore the treatment flag when it's dominated by strong baseline features like past spend.
+
+**Evaluation:** Qini Curve (uplift cumulative gain). Standard ROC-AUC is invalid here because real-world counterfactuals can't be observed directly (a household can't be simultaneously mailed and not mailed); the Qini curve instead measures true incremental conversion.
+
+**Key business finding (the value-add over Model 1):** current campaigns disproportionately target the heaviest, most loyal spenders, who tend to buy the product anyway — a propensity model (Model 1) would misallocate budget to them because their overall purchase probability is high. Untargeted, moderate-spending households show the largest actual response gap between "mailed" and "not mailed." Uplift modeling isolates this true incremental impact to drive real incremental revenue, which Model 1 alone cannot surface.
 
 
 
@@ -94,6 +144,7 @@ Step 1: Data Agent
 - Task: checks and cleans the data, for example that every redemption matches a campaign the household was mailed, and that demographics exist for only 801 of the 2,500 households
 - Decides: which issues to fix and which to flag
 - Output: clean tables and a data quality report, sent to the Feature Agent
+- Progress: first-draft ingestion script built and run successfully on all 8 real files (2.6M transaction rows, 36.8M display/mailer rows); produces clean tables + a data quality report
    │
    ▼
 Step 2: Feature Agent
@@ -151,7 +202,7 @@ Which data issues can agents handle automatically, and which should be flagged f
 
 ---
 
-## System Architecture (proposed)
+## System Architecture
 
 ```
 Raw CSVs
@@ -179,6 +230,42 @@ Model API (REST) ─ /score  /scenario  /explain
 ```
 
 **Design principle:** core computation stays in deterministic, tested Python functions. Agents orchestrate those tools and produce reports, which keeps results reproducible and agent performance measurable.
+
+**One agent architecture serves all three prediction questions.** Each agent does the same job in the same way for every model — only the instructions it receives change with the model:
+
+| Agent | Shared because... |
+|---|---|
+| 1. Data | All three models use the same data files, so the cleaning rules are the same. |
+| 2. Feature | One shared table of household features serves all three; each model keeps only its own campaigns, rows and target. |
+| 3. Modeling | Same steps (reshape the data, train, tune); the instructions say which kind of model to build. |
+| 4. Evaluation | Same steps (test on later campaigns, compare with a baseline); the instructions say how to measure success. |
+| 5. Scoring | Runs any approved model the same way; each model adds one score column. |
+| 6. Decision Lab | One application; each score is a column it can rank by or add up. |
+| 7. Decision Support | Same tools to look up and explain results; it is told what each score means. |
+
+Model 3 plugs its own method (two models: mailed and not mailed) and its own evaluation (Qini curve) into the shared Modeling and Evaluation agents.
+
+**Data Agent.** Cleans and checks all 8 files, and checks that they agree with each other, against one cleaning rulebook for the whole dataset (expected columns, checks, and whether to fix, flag, or stop) — the same for every model, because the data is the same.
+
+**Feature Agent.** Builds one shared table of 75,000 rows (2,500 households × 30 campaigns), holding features from before each campaign and every model's target, including Model 3's purchase outcome with display-driven purchases excluded. Each model's instructions say which campaigns, rows, and target column to keep:
+
+| Model | Campaigns | Rows | Target column |
+|---|---|---|---|
+| 1. Response | All 30 | Mailed: 7,208 | Redeemed (yes/no) |
+| 2. Expected value | All 30 (or TypeB/C) | Redeemed: 889 (TypeB/C: 254) | Spend on campaign products ($) |
+| 3. Uplift | TypeB/C only (25) | Mailed and not mailed: 43,396 | Bought a campaign product (yes/no) |
+
+**Modeling Agent.** Reshapes the table for each model type (e.g. logistic regression needs yes/no columns and similarly-scaled numbers; a boosting model uses the table almost as-is — same information, different format), then trains and tunes on the earlier campaigns.
+
+**Evaluation Agent.** Tests the models on the later campaigns, compares against a baseline, and decides: approve, or send feedback back to features or modeling.
+
+| Model | Modeling instructions | Evaluation instructions |
+|---|---|---|
+| 1. Response | Yes/no models (e.g. logistic regression, LightGBM) | Redeemers caught in the top 20%, vs. "redeemed before" |
+| 2. Expected value | Dollar models (e.g. linear regression) | Average dollar error, vs. usual spend |
+| 3. Uplift | Two models (mailed, not mailed); uplift = difference | Qini curve, vs. random targeting |
+
+**Scoring, Decision Lab, Decision Support (steps 5–7)** are fully shared; each model adds one score column to the same table (e.g. Model 1 × Model 2 = expected value).
 
 ---
 
