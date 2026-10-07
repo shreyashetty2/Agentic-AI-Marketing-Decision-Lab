@@ -1,0 +1,187 @@
+# Feature Agent, step 2A: instruction document.
+# The code reads this file; it is the single source of truth for what 2A builds.
+# Why each choice was made: docs/feature_agent_2a_design.md
+
+input:
+  spine: spine_household_campaign.parquet     # from the Data Agent (preprocessing/build_spine.py)
+  tables: [transaction_data, coupon, coupon_redempt, product, hh_demographic, causal_data]
+  expected:                                   # stop if the spine does not match
+    rows: 75000
+    mailed_rows: 7208
+    redeemed_mailed_rows: 889
+
+output:
+  table: features_household_campaign.parquet  # one row per household x campaign, handed to 2B
+  report: feature_2a_report.md                # column health + agent decisions
+
+settings:
+  cutoff_gap_days: 7          # cutoff_day = start_day - 7; profile columns use only days < cutoff_day
+  windows_weeks: [8, 26]      # look-back windows, counted back from cutoff_day
+  leak_alarm: 0.90            # a profile column scoring above this on any outcome gets the leak test;
+                              # the run stops only if the leak test fails
+
+# Column roles tell 2B and the Modeling Agent what each column may be used for:
+#   key      identifies the row
+#   context  known before the campaign; safe as a model input
+#   profile  built by 2A from data before cutoff_day; safe as a model input
+#   outcome  measured during the campaign window; NEVER a model input
+#   filter   for choosing rows in 2B; NEVER a model input
+#   flag     marks rows needing care; safe to filter on, not meant as an input
+#
+# blank_when lists the only reasons a column may be blank. Any other blank is unexplained:
+#   no_history       the household has no purchase before cutoff_day
+#   no_spend_26w     no spend in the 26-week window
+#   never_received   no campaign mailed to the household had ended before cutoff_day
+#   no_demographics  the household is not in hh_demographic
+#   type_a           TypeA campaign (exposure unknown)
+#   not_redeemed     redeemed_flag = 0
+
+passthrough:   # Claudia's spine columns, carried over unchanged
+  household_key: key
+  campaign: key
+  campaign_type: context
+  start_day: context
+  end_day: context
+  chrono_rank: context
+  duration_days: context
+  n_overlapping_campaigns: context
+  window_truncated_flag: flag
+  mailed_flag: filter
+  has_demographics: context
+  first_txn_day: context
+  history_days_before_start: context
+  n_redemptions: outcome
+  n_redemptions_in_window: outcome
+  redeemed_flag: outcome          # Model 1 answer
+
+profile:
+  # Shopping activity. "Per week" = total in the window / weeks of history available in it,
+  # so a household that joined recently is not mistaken for a light shopper.
+  history_weeks_before_cutoff:
+    desc: "Weeks between the household's first purchase before cutoff_day and cutoff_day (0 = no history)."
+  spend_per_week_8w:
+    desc: "Average weekly SALES_VALUE in the 8-week window."
+    blank_when: [no_history]
+  spend_per_week_26w:
+    desc: "Average weekly SALES_VALUE in the 26-week window."
+    blank_when: [no_history]
+  trips_per_week_8w:
+    desc: "Average weekly shopping trips (distinct baskets) in the 8-week window."
+    blank_when: [no_history]
+  trips_per_week_26w:
+    desc: "Average weekly shopping trips (distinct baskets) in the 26-week window."
+    blank_when: [no_history]
+  avg_basket_value_26w:
+    desc: "SALES_VALUE per trip in the 26-week window."
+    blank_when: [no_history, no_spend_26w]
+  days_since_last_trip:
+    desc: "Days from the household's last purchase before cutoff_day to cutoff_day."
+    blank_when: [no_history]
+  n_departments_26w:
+    desc: "Distinct product departments bought in the 26-week window."
+    blank_when: [no_history]
+
+  # Deal habits
+  share_spend_on_discount_26w:
+    desc: "Share of 26-week spend on lines with a loyalty-card discount (RETAIL_DISC < 0)."
+    blank_when: [no_history, no_spend_26w]
+  coupon_lines_per_week_26w:
+    desc: "Average weekly receipt lines that used any coupon (COUPON_DISC < 0), 26-week window."
+    blank_when: [no_history]
+
+  # Coupon history (all history before cutoff_day)
+  past_redemptions:
+    desc: "Coupon redemptions dated before cutoff_day, any campaign."
+  past_campaigns_received:
+    desc: "Campaigns mailed to the household that ended before cutoff_day."
+  past_campaigns_redeemed:
+    desc: "Of those, campaigns with at least one redemption before cutoff_day."
+  past_redemption_rate:
+    desc: "past_campaigns_redeemed / past_campaigns_received."
+    blank_when: [never_received]
+
+  # Interest in this campaign's products (each campaign's distinct product list from coupon)
+  campaign_product_spend_per_week_26w:
+    desc: "Average weekly spend on this campaign's products, 26-week window."
+    blank_when: [no_history]
+  campaign_product_share_26w:
+    desc: "Share of 26-week spend on this campaign's products."
+    blank_when: [no_history, no_spend_26w]
+
+  # Other campaigns
+  other_campaigns_live_at_cutoff:
+    desc: "Other campaigns mailed to the household that started before cutoff_day and are still running on it."
+
+  # Household (raw labels; turning them into numbers is the Modeling Agent's job)
+  classification_1: {desc: "Demographic label (anonymised; ordered age groups).", blank_when: [no_demographics]}
+  classification_2: {desc: "Demographic label (anonymised; X/Y/Z).", blank_when: [no_demographics]}
+  classification_3: {desc: "Demographic label (anonymised; ordered levels).", blank_when: [no_demographics]}
+  classification_4: {desc: "Demographic label (anonymised; 1 to 5+).", blank_when: [no_demographics]}
+  classification_5: {desc: "Demographic label (anonymised; ordered groups).", blank_when: [no_demographics]}
+  homeowner_desc: {desc: "Homeowner status label.", blank_when: [no_demographics]}
+  kid_category_desc: {desc: "Number-of-kids label.", blank_when: [no_demographics]}
+
+outcome:   # measured from start_day to end_day inclusive
+  campaign_product_spend_during:
+    desc: "Model 2 main. SALES_VALUE on this campaign's products in the window. All campaign types; for TypeA the list is the full coupon pool."
+  redeemed_coupon_product_spend_during:
+    desc: "Model 2 sensitivity. SALES_VALUE on products of coupons the household redeemed in this campaign."
+    blank_when: [not_redeemed]
+  bought_campaign_product_excl_display_flyer:
+    desc: "Model 3 main. 1 if the household bought this campaign's products in the window while the product was neither on display nor in the flyer (that store and week). TypeB/C only."
+    blank_when: [type_a]
+  bought_campaign_product_excl_display:
+    desc: "Model 3 variant. As above, excluding display only."
+    blank_when: [type_a]
+
+filter:
+  mailed_overlapping_campaign:
+    desc: "1 if the household was mailed any other campaign whose window overlaps this one. For Model 3's comparison group."
+
+flag:
+  short_history_flag:
+    desc: "1 if history_weeks_before_cutoff < 26."
+  no_history_flag:
+    desc: "1 if history_weeks_before_cutoff = 0."
+
+rules:
+  - "Profile columns use only rows with day < cutoff_day. Cut by day, never by week_no."
+  - "Every profile column is measured relative to its own row's cutoff_day; no whole-period totals."
+  - "Past redemptions are counted by redemption day, not by campaign."
+  - "One function, features(household, campaign, cutoff_day), builds every profile, for training and for scoring."
+  - "Campaign product lists are each campaign's DISTINCT product_ids, so duplicate coupon rows never double count."
+  - "Display/flyer: a (product, store, week) counts as promoted if any causal_data row says so. week = ceil((day + 2) / 7)."
+  - "2A computes columns; it never drops columns, edits values, or changes these settings."
+
+agent:
+  # The only judgment in 2A: is each column trustworthy? Code computes the health numbers;
+  # blank_when and the checks handle known patterns; the agent handles anything else.
+  health_numbers: [share_blank, n_distinct, min, max, signal_vs_each_outcome]   # AUC for yes/no outcomes, rank correlation for dollars
+  actions: [accept, accept_with_note, quarantine, stop]
+  approval: "Agent applies accept / note / quarantine and logs a reason. Stop always goes to a human."
+  report_check: "Every number in the agent's report must match the health numbers; code verifies."
+
+done_when:   # acceptance checks; all must pass
+  shape:
+    - "75,000 rows, unique on (household_key, campaign), same keys as the spine"
+    - "Passthrough columns identical to the spine"
+  leakage:
+    - "Scrambling all purchases and redemptions on or after each cutoff_day leaves every profile column unchanged"
+    - "Scrambling purchases inside the campaign window changes the outcome columns"
+    - "Every profile column above leak_alarm passes the leak test (accepted with a note); a failure stops the run"
+  known_numbers:
+    - "redeemed_flag = 1 on 889 mailed rows"
+    - "bought_campaign_product_excl_display_flyer = 1 on 11,838 rows; excl_display = 1 on 13,235"
+    - "Household 208, campaign 18: campaign_product_spend_during = 209.58"
+  values:
+    - "No negative spend or counts; every share between 0 and 1"
+    - "Every blank explained by blank_when (unexplained blanks = 0)"
+  pipeline:
+    - "Two runs on the same input give byte-identical output"
+    - "features(household, campaign, cutoff_day) called directly matches the table, including for a non-campaign cutoff"
+    - "Runs within 8 GB of memory"
+  agent:
+    - "Every column has a decision and a reason in the report"
+    - "The leak test catches a planted column that sees 30 days past the cutoff"
+  validation_report:
+    - "Signal of every profile column against all three models' outcomes"
