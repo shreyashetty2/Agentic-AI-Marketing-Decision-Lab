@@ -8,6 +8,7 @@ duckdb
 scikit-learn
 lightgbm
 shap
+scipy
 
 # Visualization / notebooks
 matplotlib

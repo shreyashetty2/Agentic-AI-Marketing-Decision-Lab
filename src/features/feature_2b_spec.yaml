@@ -1,0 +1,55 @@
+# Feature Agent, step 2B: instruction document.
+# The code reads this file; it is the single source of truth for which rows and which answer
+# column each model gets from 2A's shared table.
+# Why each choice was made: docs/feature_agent_2b_design.md
+
+input:
+  table: features_household_campaign.parquet   # from Feature Agent 2A (src/features/build_2a.py)
+  spec: feature_2a_spec.yaml                    # column roles: context/profile are safe inputs; outcome/filter/flag never are
+
+output:
+  dir: data/processed
+  table_pattern: "model{n}_table.parquet"       # one row per household x campaign kept for that model
+  report: feature_2b_report.md
+
+# All three models share the same context + profile columns as candidate inputs (2A builds one
+# set for everyone). 2B does not narrow that down further -- choosing which of them to actually
+# use is the Modeling Agent's job (step 3). 2B's job is strictly: which ROWS, which ANSWER column.
+models:
+  1:
+    name: "Campaign Response Probability"
+    rows: "mailed_flag == 1"
+    rows_desc: "Every mailed household x campaign pair, all 30 campaigns."
+    label: redeemed_flag
+    expected_rows: 7208
+    expected_label_positive: 889
+
+  2:
+    name: "Expected Financial Value"
+    rows: "mailed_flag == 1 and redeemed_flag == 1 and campaign_type != 'A'"
+    rows_desc: >
+      Redeemed, mailed TypeB/C pairs only. TypeA is excluded by default: a household's actual
+      16 coupons (out of a ~200-product pool) are unknown, so campaign_product_spend_during is
+      computed over the whole pool for TypeA and is a noisier, not-directly-comparable target.
+      Scoring TypeA separately is a documented open extension (see 2A design doc), not blended
+      into the primary 254-row target.
+    label: campaign_product_spend_during
+    sensitivity_label: redeemed_coupon_product_spend_during   # spend on only the products actually redeemed
+    expected_rows: 254
+
+  3:
+    name: "True Incremental Uplift"
+    rows: "campaign_type != 'A' and (mailed_flag == 1 or mailed_overlapping_campaign == 0)"
+    rows_desc: >
+      TypeB/C only (TypeA's per-household coupon exposure is unknown, so there is no reliable
+      "eligible product" set to define the outcome on -- see 2A design doc / docs/feature_agent_2b_design.md).
+      Every mailed household (Treatment), plus every household NOT mailed this campaign AND not
+      mailed any other campaign whose window overlaps it (clean Control). This removes the 19,104
+      TypeB/C rows that would otherwise be counted as untreated controls while actually treated
+      by a different, concurrently-running campaign.
+    label: bought_campaign_product_excl_display_flyer
+    sensitivity_label: bought_campaign_product_excl_display   # excludes display-driven purchases only, not flyer too
+    treatment_column: mailed_flag   # splits rows between Model T and Model C; NEVER a feature column
+    expected_rows: 43396
+    expected_treated_rows: 3229
+    expected_control_rows: 40167
