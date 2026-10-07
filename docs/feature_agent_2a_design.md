@@ -85,17 +85,19 @@ The agent's one decision is whether each column is trustworthy.
 
 - **Code measures each column's health:** share blank, value range, and how strongly it predicts each outcome.
 - **Known patterns are handled by fixed rules.** Example: "blank because the household was never mailed before" is accepted with a note.
-- **The agent judges anything else** and picks accept, accept with a note, quarantine, or stop, with a written reason.
+- **Anything no rule covers would go to an AI reviewer,** choosing accept, accept with a note, quarantine, or stop, with a written reason. It is not built yet: on the real data, the rules and the leak test decide every column, so it would have nothing to judge. It becomes useful when new columns or new data behave in ways no rule anticipated.
 - **High scores trigger the leak test automatically.** Honest habits can score high, so a score above 0.90 is not treated as a leak by itself. The code runs the scramble test on that column: if nothing changes, the column is accepted with a note; if anything changes, it is a real leak and the run stops for a human.
   - On the real data this fired once: spend on this campaign's products before the campaign scored 0.92 against Model 2's answer (spend on those products during it). The leak test showed no change, so it is habit, not leakage. Within each campaign type the relationship is weaker (TypeA 0.85, TypeB 0.57, TypeC 0.36); the pooled 0.92 is partly TypeA's large product pools making both numbers big.
-- **Worked example:** the coupon-habit column scores suspiciously high. The agent runs the leak check described above, then accepts it with the note "genuine coupon habit, not leakage".
 
 Limits on the agent:
 
-- Quarantine keeps the column and only marks it, so the agent applies it without approval.
+- Quarantine keeps the column and only marks it, so the reviewer could apply it without approval.
 - Stopping the run always goes to a human.
-- The agent writes the plain-language report. Code verifies that every number in it matches the health numbers.
 - The agent never changes settings, values or columns.
+
+## The run report
+
+Every run writes `feature_2a_report.md` next to the table: the checks that passed, a decision for every added column (with the reason whenever there is something to know, such as why a column is blank), and which profile columns track each model's answer most strongly. Code writes it from the run's own numbers, so it is exact and identical for identical runs.
 
 ## How we know it is done
 
