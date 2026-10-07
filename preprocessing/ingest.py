@@ -34,6 +34,7 @@ class TableSpec:
     columns: dict[str, str]          # column_name -> pandas dtype
     key_columns: list[str]           # columns that together should be unique (empty = not enforced)
     not_null_columns: list[str] = field(default_factory=list)
+    drop_exact_duplicates: bool = False  # only for mapping tables, where a repeated row carries no meaning
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +124,7 @@ TABLE_SPECS: dict[str, TableSpec] = {
         },
         key_columns=[],  # one coupon can apply to many products
         not_null_columns=["COUPON_UPC", "PRODUCT_ID", "CAMPAIGN"],
+        drop_exact_duplicates=True,  # 5,164 identical rows; they would double count campaign products
     ),
     "coupon_redempt": TableSpec(
         filename="coupon_redempt.csv",
@@ -205,6 +207,13 @@ def load_and_validate(name: str, spec: TableSpec) -> tuple[pd.DataFrame, dict]:
 
     # 5. Drop fully-null rows introduced by cast failures, then finalize
     df = df.dropna(subset=spec.not_null_columns) if spec.not_null_columns else df
+
+    # 6. Remove exact duplicate rows, only where the spec allows it (never transactions or redemptions,
+    #    where a repeated row can be a real repeat purchase or redemption)
+    rows_before = len(df)
+    if spec.drop_exact_duplicates:
+        df = df.drop_duplicates().reset_index(drop=True)
+    report["exact_duplicates_removed"] = rows_before - len(df)
     report["clean_row_count"] = len(df)
     report["rows_dropped"] = report["raw_row_count"] - report["clean_row_count"]
 
