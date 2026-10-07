@@ -14,6 +14,11 @@ OUTCOMES = {
     "model3_bought": ("bought_campaign_product_excl_display_flyer",
                       lambda t: t["bought_campaign_product_excl_display_flyer"].notna(), "yes_no"),
 }
+OUTCOME_LABELS = {
+    "model1_redeemed": "Model 1's answer (redeemed, yes/no)",
+    "model2_spend": "Model 2's answer (spend on campaign products during the campaign)",
+    "model3_bought": "Model 3's answer (bought a campaign product, yes/no)",
+}
 
 
 def _reason_masks(t: pd.DataFrame) -> dict[str, pd.Series]:
@@ -79,3 +84,23 @@ def column_health(table: pd.DataFrame, columns: list[str], leak_alarm: float) ->
     health["max_signal"] = health[list(OUTCOMES)].max(axis=1)
     health["leak_alarm"] = health["max_signal"] > leak_alarm
     return health
+
+
+def decide_columns(table: pd.DataFrame, health: pd.DataFrame, spec: dict, leak_cleared: list[str]) -> pd.DataFrame:
+    """One decision per column 2A adds: accept, or accept_with_note when there is something a reader should know.
+    Called only after the hard checks passed, so every blank is already known to be explained."""
+    alarm = spec["settings"]["leak_alarm"]
+    rows = []
+    for column, reasons in blank_reasons(spec).items():
+        notes = []
+        if column in leak_cleared:
+            scores = health.loc[column, list(OUTCOMES)]
+            top = scores.idxmax()
+            notes.append(f"Scored {scores[top]:.2f} against {OUTCOME_LABELS[top]}, above the {alarm:.2f} leak alarm. "
+                         "Unchanged when all data after the cutoff is scrambled, so this is genuine habit, not leakage.")
+        share_blank = table[column].isna().mean()
+        if share_blank > 0:
+            why = ", or because ".join(spec["blank_reasons"][r] for r in reasons)
+            notes.append(f"Blank on {share_blank:.1%} of rows, because {why}.")
+        rows.append({"column": column, "decision": "accept_with_note" if notes else "accept", "note": " ".join(notes)})
+    return pd.DataFrame(rows).set_index("column")

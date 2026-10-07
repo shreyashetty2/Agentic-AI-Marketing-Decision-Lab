@@ -12,7 +12,7 @@ input:
 
 output:
   table: features_household_campaign.parquet  # one row per household x campaign, handed to 2B
-  report: feature_2a_report.md                # column health + agent decisions
+  report: feature_2a_report.md                # plain-language summary of the run: checks, column decisions, findings
 
 settings:
   cutoff_gap_days: 7          # cutoff_day = start_day - 7; profile columns use only days < cutoff_day
@@ -27,14 +27,16 @@ settings:
 #   outcome  measured during the campaign window; NEVER a model input
 #   filter   for choosing rows in 2B; NEVER a model input
 #   flag     marks rows needing care; safe to filter on, not meant as an input
-#
-# blank_when lists the only reasons a column may be blank. Any other blank is unexplained:
-#   no_history       the household has no purchase before cutoff_day
-#   no_spend_26w     no spend in the 26-week window
-#   never_received   no campaign mailed to the household had ended before cutoff_day
-#   no_demographics  the household is not in hh_demographic
-#   type_a           TypeA campaign (exposure unknown)
-#   not_redeemed     redeemed_flag = 0
+
+# Each column's blank_when lists the only reasons it may be blank; any other blank stops the run.
+# Each reason is written to follow the word "because" in the run report.
+blank_reasons:
+  no_history: "the household had not shopped yet before the cutoff"
+  no_spend_26w: "the household spent nothing in the 26 weeks before the cutoff"
+  never_received: "no campaign mailed to the household had ended before the cutoff"
+  no_demographics: "the household has no demographic record (only 801 of 2,500 do)"
+  type_a: "it is a TypeA campaign, where each household's coupons are unknown (Model 3 covers TypeB/C only)"
+  not_redeemed: "the household did not redeem this campaign"
 
 passthrough:   # Claudia's spine columns, carried over unchanged
   household_key: key
@@ -154,12 +156,13 @@ rules:
   - "2A computes columns; it never drops columns, edits values, or changes these settings."
 
 agent:
-  # The only judgment in 2A: is each column trustworthy? Code computes the health numbers;
-  # blank_when and the checks handle known patterns; the agent handles anything else.
+  # The only judgment in 2A: is each column trustworthy? Code computes the health numbers and decides every
+  # case the rules cover: blank_when explains blanks, and a score above leak_alarm triggers the leak test.
+  # An AI reviewer for cases no rule covers is not built: on the real data the rules decide every column.
   health_numbers: [share_blank, n_distinct, min, max, signal_vs_each_outcome]   # AUC for yes/no outcomes, rank correlation for dollars
-  actions: [accept, accept_with_note, quarantine, stop]
-  approval: "Agent applies accept / note / quarantine and logs a reason. Stop always goes to a human."
-  report_check: "Every number in the agent's report must match the health numbers; code verifies."
+  actions: [accept, accept_with_note, quarantine, stop]   # quarantine is reserved for that AI reviewer
+  approval: "Stop always goes to a human."
+  report: "Code writes the run report from the checks, health numbers and decisions, so every number in it is exact."
 
 done_when:   # acceptance checks; all must pass
   shape:
@@ -181,7 +184,7 @@ done_when:   # acceptance checks; all must pass
     - "features(household, campaign, cutoff_day) called directly matches the table, including for a non-campaign cutoff"
     - "Runs within 8 GB of memory"
   agent:
-    - "Every column has a decision and a reason in the report"
+    - "Every added column has a decision in the run report, and every accept_with_note says why"
     - "The leak test catches a planted column that sees 30 days past the cutoff"
   validation_report:
     - "Signal of every profile column against all three models' outcomes"
