@@ -1,0 +1,175 @@
+
+==============================================================================
+0. LOADING FILES
+==============================================================================
+[INFO ] load: transaction_data: 2,595,732 rows, columns = ['household_key', 'basket_id', 'day', 'product_id', 'quantity', 'sales_value', 'store_id', 'retail_disc', 'trans_time', 'week_no', 'coupon_disc', 'coupon_match_disc']
+[INFO ] load: hh_demographic: 801 rows, columns = ['classification_1', 'classification_2', 'classification_3', 'homeowner_desc', 'classification_5', 'classification_4', 'kid_category_desc', 'household_key']
+[INFO ] load: product: 92,353 rows, columns = ['product_id', 'manufacturer', 'department', 'brand', 'commodity_desc', 'sub_commodity_desc', 'curr_size_of_product']
+[INFO ] load: campaign_table: 7,208 rows, columns = ['description', 'household_key', 'campaign']
+[INFO ] load: campaign_desc: 30 rows, columns = ['description', 'campaign', 'start_day', 'end_day']
+[INFO ] load: coupon: 124,548 rows, columns = ['coupon_upc', 'product_id', 'campaign']
+[INFO ] load: coupon_redempt: 2,318 rows, columns = ['household_key', 'day', 'coupon_upc', 'campaign']
+
+==============================================================================
+C1. hh_demographic column names vs the PDF
+==============================================================================
+[CHECK] C1: actual columns = ['classification_1', 'classification_2', 'classification_3', 'classification_4', 'classification_5', 'homeowner_desc', 'household_key', 'kid_category_desc']
+[OK   ] C1: PDF page-4 names (basket_id, day, ...) do NOT appear in the file, so the PDF table is a documentation error
+
+==============================================================================
+C2. Household universe and headline counts
+==============================================================================
+[OK   ] C2a: distinct households in transaction_data = 2,500 (expected 2,500)
+[OK   ] C2b: households with demographics = 801 (expected 801)
+[OK   ] C2c: hh_demographic unique per household = True
+[OK   ] C2d: campaign_table rows = 7,208 (expected 7,208)
+[OK   ] C2e: duplicate (household, campaign) pairs in campaign_table = 0
+[INFO ] C2f: households that appear in campaign_table = 1,584; never mailed any campaign = 916
+[OK   ] C2g: campaigns in campaign_desc = 30 (expected 30)
+[INFO ] C2h: campaign types = ['TypeA', 'TypeB', 'TypeC']; mailings per type = {'TypeA': 3979, 'TypeB': 2655, 'TypeC': 574}
+[OK   ] C2i: demographic households not in transaction_data = 0
+[OK   ] C2j: campaign_table rows whose type disagrees with campaign_desc = 0
+
+==============================================================================
+C3. Discount columns: are they stored as negative numbers?
+==============================================================================
+[CHECK] C3: retail_disc: min=-180.00, max=3.99, rows > 0 = 36, rows < 0 = 1,303,026
+[OK   ] C3: coupon_disc: min=-55.93, max=0.00, rows > 0 = 0, rows < 0 = 36,422
+[OK   ] C3: coupon_match_disc: min=-7.70, max=0.00, rows > 0 = 0, rows < 0 = 17,449
+
+==============================================================================
+C4. Net revenue formula: what does SALES_VALUE - COUPON_MATCH_DISC do?
+==============================================================================
+[INFO ] C4a: transaction lines with a coupon match discount = 17,449
+[INFO ] C4b: on those lines, sales_value - coupon_match_disc is HIGHER than sales_value in 100.0% of rows (if ~100%, the literal formula adds the discount back instead of subtracting a cost)
+    sample rows (household_key, sales_value, retail_disc, coupon_disc, coupon_match_disc):
+        718     1.10    -0.69    -0.40    -0.40
+        718     2.12    -0.90    -0.75    -0.25
+        718     2.05    -0.49    -0.55    -0.45
+       2305     1.53    -1.00    -0.55    -0.45
+        122     4.25    -1.87    -2.25    -0.75
+        315     1.55    -0.89    -0.55    -0.45
+        687     5.49    -1.00    -0.50    -0.50
+        687     4.69     0.00    -0.50    -0.50
+    -> compare with the guide's example: sales 2.89, coupon_disc -0.55, match -0.45
+
+==============================================================================
+C5. Transaction quality and the day vs week_no relationship
+==============================================================================
+[INFO ] C5a: transaction rows = 2,595,732; distinct products = 92,339
+[INFO ] C5b: day range = 1 to 711; week_no range = 1 to 102 (expected weeks 1-102)
+[INFO ] C5c: rows with quantity <= 0 = 14,466; sales_value <= 0 = 18,850; sales_value < 0 = 0
+[INFO ] C5d: max quantity = 89,638; rows with quantity > 100 = 23,136
+[OK   ] C5e: trans_time within 0-2359 for all rows = True
+[OK   ] C5f: days that map to more than one week_no = 0 of 711
+[CHECK] C5g: rows where week_no == ceil(day/7): 73.25%
+[INFO ] C5h: best simple offset: week = ceil((day + 2) / 7) matches 100.00% of rows
+[OK   ] C5i: transaction product_ids missing from the product table = 0
+[OK   ] C5j: product table unique per product_id = True
+
+==============================================================================
+C6. Campaign windows: order and overlap
+==============================================================================
+[OK   ] C6a: start_day <= end_day for all campaigns = True
+[OK   ] C6b: campaign IDs are in chronological order = False (guideline claims they are NOT, e.g. campaign 26 before campaign 8)
+    campaigns by start day (campaign, type, start, end):
+       26  TypeA   224 -  264
+       27  TypeC   237 -  300
+       28  TypeB   259 -  320
+       29  TypeB   281 -  334
+       30  TypeA   323 -  369
+        1  TypeB   346 -  383
+        2  TypeB   351 -  383
+        3  TypeC   356 -  412
+        4  TypeB   372 -  404
+        5  TypeB   377 -  411
+        6  TypeC   393 -  425
+        7  TypeB   398 -  432
+        8  TypeA   412 -  460
+        9  TypeB   435 -  467
+       10  TypeB   463 -  495
+       12  TypeB   477 -  509
+       11  TypeB   477 -  523
+       13  TypeA   504 -  551
+       14  TypeC   531 -  596
+       15  TypeC   547 -  708
+       16  TypeB   561 -  593
+       17  TypeB   575 -  607
+       18  TypeA   587 -  642
+       19  TypeB   603 -  635
+       20  TypeC   615 -  685
+       22  TypeB   624 -  656
+       21  TypeB   624 -  656
+       23  TypeB   646 -  684
+       25  TypeB   659 -  691
+       24  TypeB   659 -  719
+[OK   ] C6c: overlapping campaign pairs = 74 (guideline claims some overlap); pairs: [(26, 27), (26, 28), (27, 28), (27, 29), (28, 29), (29, 30), (30, 1), (30, 2), (30, 3), (1, 2)]
+[INFO ] C6d: campaign day range = 224 to 719; transaction day range = 1 to 711
+
+==============================================================================
+C7. Coupon table
+==============================================================================
+[INFO ] C7a: coupon rows = 124,548; exact duplicate rows = 5,164
+[INFO ] C7b: coupon_upc values that appear under more than one campaign = 171 of 1,135 (if > 0, join on (campaign, coupon_upc), not coupon_upc alone)
+[OK   ] C7c: coupon campaigns missing from campaign_desc = 0
+    distinct coupons per campaign, by type:
+      TypeA: min=181, median=207, max=209
+      TypeB: min=2, median=15, max=33
+      TypeC: min=1, median=25, max=34
+[OK   ] C7d: largest TypeA coupon pool = 209 (> 16 supports the claim that TypeA households got 16 out of a larger pool)
+
+==============================================================================
+C8. Redemptions: do they line up with mailings, windows and coupons?
+==============================================================================
+[INFO ] C8a: redemption rows = 2,318; identical duplicate rows = 0 (guideline says these are real repeat redemptions, not errors)
+[OK   ] C8b: redemption rows whose (household, campaign) was NOT mailed = 0
+[OK   ] C8c: redemption rows outside the campaign's start/end days = 0
+[OK   ] C8d: redemption rows whose (campaign, coupon_upc) is not in the coupon table = 0
+[OK   ] C8e: all redeeming households exist in transaction_data = True
+
+==============================================================================
+C9. Reproduce the proposal: 7,208 mailings, 889 with at least one redemption
+==============================================================================
+[OK   ] C9a: distinct mailed pairs = 7,208 (expected 7,208)
+[OK   ] C9b: mailed pairs with at least one redemption = 889 (expected 889); rate = 12.33% (expected 12.3%)
+[INFO ] C9c: distinct redeemed (household, campaign) pairs in coupon_redempt = 889; of these not mailed = 0
+    redemption rate by campaign type:
+      TypeA: 635 of 3979 = 16.0%
+      TypeB: 210 of 2655 = 7.9%
+      TypeC: 44 of 574 = 7.7%
+
+==============================================================================
+C10. How much purchase history exists before each mailed campaign?
+==============================================================================
+[INFO ] C10a: earliest campaign start day = 224
+[INFO ] C10b: mailed pairs with no prior history (start_day <= first purchase day) = 0 of 7,208
+[INFO ] C10c: mailed pairs with less than 8 weeks (56 days) of history = 0; less than 26 weeks (182 days) = 108
+    history days before campaign start: median=433, min=134, max=658
+
+==============================================================================
+C11. Demographic categories (needed to build the ordinal mapping)
+==============================================================================
+    classification_1 (6 values): Age Group4=288; Age Group3=194; Age Group2=142; Age Group6=72; Age Group5=59; Age Group1=46
+    classification_2 (3 values): Y=344; X=340; Z=117
+    classification_3 (12 values): Level5=192; Level4=172; Level6=96; Level3=77; Level2=74; Level1=61; Level8=38; Level7=34; Level9=30; Level12=11; Level10=11; Level11=5
+    homeowner_desc (5 values): Homeowner=504; Unknown=233; Renter=42; Probable Renter=11; Probable Owner=11
+    classification_5 (6 values): Group5=255; Group4=187; Group3=144; Group2=95; Group6=73; Group1=47
+    classification_4 (5 values): 2=318; 1=255; 3=109; 5+=66; 4=53
+    kid_category_desc (4 values): None/Unknown=558; 1=114; 3+=69; 2=60
+
+==============================================================================
+C12. causal_data (display and mailer codes)
+==============================================================================
+[INFO ] C12a: causal_data rows = 36,786,524
+[OK   ] C12b: display codes found = ['0', '1', '2', '3', '4', '5', '6', '7', '9', 'A']
+[OK   ] C12c: mailer codes found = ['0', 'A', 'C', 'D', 'F', 'H', 'J', 'L', 'P', 'X', 'Z']
+[CHECK] C12d: duplicate (product, store, week) keys = 15,245
+
+==============================================================================
+SUMMARY
+==============================================================================
+4 item(s) differ from the guideline's expectation:
+  [CHECK] C1: actual columns = ['classification_1', 'classification_2', 'classification_3', 'classification_4', 'classification_5', 'homeowner_desc', 'household_key', 'kid_category_desc']
+  [CHECK] C3: retail_disc: min=-180.00, max=3.99, rows > 0 = 36, rows < 0 = 1,303,026
+  [CHECK] C5g: rows where week_no == ceil(day/7): 73.25%
+  [CHECK] C12d: duplicate (product, store, week) keys = 15,245
