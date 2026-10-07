@@ -279,10 +279,15 @@ cp .env.example .env              # then fill in API keys
 python preprocessing/ingest.py        # Step 1, Data Agent: clean tables
 python preprocessing/build_spine.py   # Step 1, Data Agent: household x campaign table
 python src/features/build_2a.py       # Step 2A, Feature Agent: shared feature table + run report
+python src/features/build_2b.py       # Step 2B, Feature Agent: one table per model + run report
 pytest tests                          # unit tests
+python tests/features/acceptance_2a.py   # real-data acceptance checks (slow, ~1 min)
+python tests/features/acceptance_2b.py   # real-data acceptance checks
 ```
 
 Step 2A writes `data/processed/features_household_campaign.parquet` (75,000 rows x 47 columns) and `feature_2a_report.md`. What every column means, and which ones a model may use, is in `src/features/feature_2a_spec.yaml`.
+
+Step 2B writes `data/processed/model{1,2,3}_table.parquet` and `feature_2b_report.md`. Which rows and which answer column each model gets is in `src/features/feature_2b_spec.yaml` (why, in `docs/feature_agent_2b_design.md`): Model 1 is 7,208 mailed rows (889 redeemed); Model 2 is 254 redeemed TypeB/C rows; Model 3 is 43,396 TypeB/C rows (3,229 treated, 40,167 clean control).
 
 *(Commands for the later steps and the API/UI will be added as components are built.)*
 
@@ -327,10 +332,15 @@ Step 2A writes `data/processed/features_household_campaign.parquet` (75,000 rows
 
 ## Contributing
 
-- Branch from `main` using `feature/<short-description>`.
-- Open a pull request with at least one reviewer before merging.
-- Never commit raw data, `.env`, or API keys.
-- Clear notebook outputs before committing.
+**No direct commits or pushes to `main`, ever — PRs only.** This is a hard rule, not a suggestion, so two people working on the same table (e.g. Feature Agent 2B) don't silently overwrite each other or create conflicting commits on main.
+
+1. Branch from `main` using `feature/<short-description>` (or `docs/...`, `fix/...`).
+2. Commit and push your branch, then open a pull request into `main`.
+3. Get at least one reviewer's sign-off before merging. Only merge your own PR after that.
+4. Never commit raw data, `.env`, or API keys.
+5. Clear notebook outputs before committing.
+
+Branch protection enforcing rule 1 (blocking direct pushes to `main` server-side) is pending a GitHub Pro upgrade — this repo is private, and GitHub only allows branch protection rules on private repos on a paid plan. Columbia students qualify for the free [GitHub Student Developer Pack](https://education.github.com/pack), which includes GitHub Pro; once that's active, enable it under **Settings → Branches → Add branch protection rule** for `main`, checking "Require a pull request before merging." Until then, rule 1 is enforced by convention — please follow it manually.
 
 ## Timeline
 
