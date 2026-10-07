@@ -273,7 +273,18 @@ mkdir -p data/raw
 cp .env.example .env              # then fill in API keys
 ```
 
-*(Commands for loading the data, running the pipeline, and launching the API/UI will be added as components are built.)*
+### Run the pipeline
+
+```bash
+python preprocessing/ingest.py        # Step 1, Data Agent: clean tables
+python preprocessing/build_spine.py   # Step 1, Data Agent: household x campaign table
+python src/features/build_2a.py       # Step 2A, Feature Agent: shared feature table + run report
+pytest tests                          # unit tests
+```
+
+Step 2A writes `data/processed/features_household_campaign.parquet` (75,000 rows x 47 columns) and `feature_2a_report.md`. What every column means, and which ones a model may use, is in `src/features/feature_2a_spec.yaml`.
+
+*(Commands for the later steps and the API/UI will be added as components are built.)*
 
 ---
 
