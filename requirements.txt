@@ -16,6 +16,7 @@ jupyter
 
 # Config
 python-dotenv
+pyyaml
 
 # --- To add once the team decides (API / UI / LLM) ---
 # fastapi
