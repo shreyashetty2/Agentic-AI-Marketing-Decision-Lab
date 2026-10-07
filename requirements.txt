@@ -18,6 +18,9 @@ jupyter
 python-dotenv
 pyyaml
 
+# Tests
+pytest
+
 # --- To add once the team decides (API / UI / LLM) ---
 # fastapi
 # uvicorn
