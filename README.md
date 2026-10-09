@@ -297,6 +297,7 @@ python src/features/build_2b.py          # Step 2B, Feature Agent: one table per
 python src/modeling/model1_baseline.py   # Step 3, Modeling Agent: Model 1 (response) classifier baseline
 python src/modeling/model2_baseline.py   # Step 3, Modeling Agent: Model 2 (expected value) regressor baseline
 python src/modeling/model3_baseline.py   # Step 3, Modeling Agent: Model 3 (uplift) T-learner baseline
+python src/modeling/model3_redemption_analysis.py  # Model 3 redemption-segmentation analysis (mentor feedback)
 pytest tests                             # unit tests
 python tests/features/acceptance_2a.py   # real-data acceptance checks (slow, ~1 min)
 python tests/features/acceptance_2b.py   # real-data acceptance checks
