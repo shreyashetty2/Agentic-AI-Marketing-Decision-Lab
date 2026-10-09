@@ -238,7 +238,7 @@ Model 3 plugs its own method (two models: mailed and not mailed) and its own eva
 ├── src/
 │   ├── preprocessing/                # Step 1 — Data Agent: ingest.py, build_spine.py
 │   ├── features/                     # Steps 2A/2B — Feature Agent: shared table + per-model tables
-│   ├── modeling/                     # Step 3 — Modeling Agent (e.g. model3_baseline.py)
+│   ├── modeling/                     # Step 3 — Modeling Agent (model{1,2,3}_baseline.py)
 │   ├── evaluation/                   # Step 4 — Evaluation Agent (not yet built)
 │   ├── scoring/                      # Step 5 — Scoring (not yet built)
 │   ├── api/                          # Model-serving REST API (not yet built)
@@ -292,6 +292,8 @@ python src/preprocessing/ingest.py       # Step 1, Data Agent: clean tables
 python src/preprocessing/build_spine.py  # Step 1, Data Agent: household x campaign table
 python src/features/build_2a.py          # Step 2A, Feature Agent: shared feature table + run report
 python src/features/build_2b.py          # Step 2B, Feature Agent: one table per model + run report
+python src/modeling/model1_baseline.py   # Step 3, Modeling Agent: Model 1 (response) classifier baseline
+python src/modeling/model2_baseline.py   # Step 3, Modeling Agent: Model 2 (expected value) regressor baseline
 python src/modeling/model3_baseline.py   # Step 3, Modeling Agent: Model 3 (uplift) T-learner baseline
 pytest tests                             # unit tests
 python tests/features/acceptance_2a.py   # real-data acceptance checks (slow, ~1 min)
@@ -301,6 +303,8 @@ python tests/features/acceptance_2b.py   # real-data acceptance checks
 Step 2A writes `data/processed/features_household_campaign.parquet` (75,000 rows x 47 columns) and `feature_2a_report.md`. What every column means, and which ones a model may use, is in `src/features/feature_2a_spec.yaml`.
 
 Step 2B writes `data/processed/model{1,2,3}_table.parquet` and `feature_2b_report.md`. Which rows and which answer column each model gets is in `src/features/feature_2b_spec.yaml` (why, in `docs/agent_design/feature_agent_2b_design.md`): Model 1 is 7,208 mailed rows (889 redeemed); Model 2 is 254 redeemed TypeB/C rows; Model 3 is 43,396 TypeB/C rows (3,229 treated, 40,167 clean control).
+
+Each `model{n}_baseline.py` trains on the earliest 70% of campaigns (by `start_day`), tests on the rest, and writes `model{n}_baseline_report.md` next to the tables. All three use the same features and model settings; each is compared against the baseline in the [evaluation table](#system-flow--architecture) — Model 1 against the "redeemed before" rule (redeemers caught in the top 20%), Model 2 against usual spend (average dollar error), Model 3 against random targeting.
 
 *(Commands for the later steps and the API/UI will be added as components are built.)*
 
