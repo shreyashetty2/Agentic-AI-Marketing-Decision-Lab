@@ -38,6 +38,23 @@ same as 2A's design doc says.
     74 of 435 campaign pairs overlap in time, so this isn't a rare edge case. 19,104 of the 62,500
     TypeB/C rows are excluded for this reason (`mailed_overlapping_campaign == 1`), leaving 43,396.
 
+## Redemption-segmentation refinement (mentor feedback, 10/9 meeting)
+
+Model 3's main outcome (`bought_campaign_product_excl_display_flyer`) counts any qualifying
+purchase as a campaign "success" -- including a household that bought the product without ever
+using the coupon, who would plausibly have bought it anyway. The mentor asked us to check this
+directly instead of only inferring it from spend levels. `bought_campaign_product_without_redemption`
+(now Model 3's second sensitivity label, alongside the display-only variant) answers it: for
+treated households, 1 if they bought the product but that purchase wasn't tied to a coupon they
+actually redeemed for this campaign.
+
+**Real result:** of the 1,596 treated TypeB/C households who bought an eligible product, only 189
+(11.8%) did so via an actually-redeemed coupon -- the other 1,407 (88.2%) bought it without ever
+touching the coupon. This is a sharper, more direct version of the "sure things vs. persuadables"
+finding from the T-learner baseline: most of what the main outcome currently counts as treatment
+success isn't coupon-driven at all. Always 0 for control households by construction (nothing to
+redeem), so it only adds information for treated rows.
+
 ## The leakage rail 2B owns
 
 2A tags every column's role (`context`, `profile`, `outcome`, `filter`, `flag`) so a reader knows

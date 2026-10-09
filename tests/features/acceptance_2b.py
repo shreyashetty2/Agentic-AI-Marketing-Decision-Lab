@@ -52,6 +52,12 @@ def main() -> None:
     check(len(tables[3]) - int(tables[3]["mailed_flag"].sum()) == 40167, "Model 3: 40,167 control rows")
     check(len(tables[2]) == 254, "Model 2: 254 redeemed TypeB/C rows")
 
+    treated_bought = tables[3][(tables[3]["mailed_flag"] == 1)
+                                & (tables[3]["bought_campaign_product_excl_display_flyer"] == 1)]
+    without = int((treated_bought["bought_campaign_product_without_redemption"] == 1).sum())
+    check(len(treated_bought) == 1596, f"Model 3: {len(treated_bought):,} treated households bought (expected 1,596)")
+    check(without == 1407, f"Model 3: {without:,} of those bought without redeeming (expected 1,407, 88.2%)")
+
     print(f"\n{sum(results)} of {len(results)} acceptance checks passed")
     sys.exit(0 if all(results) else 1)
 

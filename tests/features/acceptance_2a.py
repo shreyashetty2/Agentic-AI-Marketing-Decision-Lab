@@ -57,6 +57,10 @@ def known_numbers(table: pd.DataFrame) -> None:
     display = int((table["bought_campaign_product_excl_display"] == 1).sum())
     check(both == 11838, f"Model 3 outcome (display + flyer excluded) = 1 on {both:,} rows (expected 11,838)")
     check(display == 13235, f"Model 3 outcome (display only excluded) = 1 on {display:,} rows (expected 13,235)")
+    treated_bought = mailed[mailed["bought_campaign_product_excl_display_flyer"] == 1]
+    without = int((treated_bought["bought_campaign_product_without_redemption"] == 1).sum())
+    check(len(treated_bought) == 1596, f"{len(treated_bought):,} treated households bought (expected 1,596)")
+    check(without == 1407, f"...of those, {without:,} bought without redeeming (expected 1,407, 88.2%)")
     hh208 = table[(table["household_key"] == 208) & (table["campaign"] == 18)].iloc[0]
     check(round(hh208["campaign_product_spend_during"], 2) == 209.58,
           f"household 208, campaign 18 spend on campaign products = {hh208['campaign_product_spend_during']:.2f} (expected 209.58)")

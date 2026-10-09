@@ -44,8 +44,11 @@ def feature_columns(spec_2a: dict) -> list[str]:
 
 def label_columns(model_spec: dict) -> list[str]:
     cols = [model_spec["label"]]
-    if "sensitivity_label" in model_spec:
-        cols.append(model_spec["sensitivity_label"])
+    # sensitivity_label may be a single column (most models) or a list (Model 3 now has two:
+    # the display/flyer-only variant, and the redemption-segmentation refinement)
+    sensitivity = model_spec.get("sensitivity_label")
+    if sensitivity:
+        cols.extend(sensitivity if isinstance(sensitivity, list) else [sensitivity])
     if model_spec.get("treatment_column"):
         cols.append(model_spec["treatment_column"])
     return cols
