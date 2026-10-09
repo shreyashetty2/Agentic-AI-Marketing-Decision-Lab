@@ -109,3 +109,24 @@ def test_label_columns_helper():
     assert label_columns({"label": "x"}) == ["x"]
     assert label_columns({"label": "x", "sensitivity_label": "y"}) == ["x", "y"]
     assert label_columns({"label": "x", "treatment_column": "t"}) == ["x", "t"]
+
+
+def test_label_columns_helper_multiple_sensitivity_labels():
+    """Model 3 now has two sensitivity labels (display-only variant, redemption segmentation)."""
+    assert label_columns({"label": "x", "sensitivity_label": ["y1", "y2"]}) == ["x", "y1", "y2"]
+    assert label_columns({"label": "x", "sensitivity_label": ["y1", "y2"], "treatment_column": "t"}) \
+        == ["x", "y1", "y2", "t"]
+
+
+def test_model3_table_carries_both_sensitivity_labels(table_2a, spec_2b):
+    """The real Model 3 spec (not a toy override) now lists two sensitivity labels; both must
+    end up in the built table, alongside the main label and the treatment column."""
+    features = feature_columns(load_spec())
+    model3_spec = dict(spec_2b["models"][3])
+    model3_spec["expected_rows"] = 6
+    model3_spec["expected_treated_rows"] = 2
+    model3_spec["expected_control_rows"] = 4
+    out = build_model_table(table_2a, 3, model3_spec, features, [])
+    for column in ("bought_campaign_product_excl_display_flyer", "bought_campaign_product_excl_display",
+                   "bought_campaign_product_without_redemption", "mailed_flag"):
+        assert column in out.columns
