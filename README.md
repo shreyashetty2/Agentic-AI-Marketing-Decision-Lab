@@ -353,7 +353,7 @@ Step 2B writes `data/processed/model{1,2,3}_table.parquet` and `feature_2b_repor
 4. Never commit raw data, `.env`, or API keys.
 5. Clear notebook outputs before committing.
 
-Branch protection enforcing rule 1 (blocking direct pushes to `main` server-side) is pending a GitHub Pro upgrade — this repo is private, and GitHub only allows branch protection rules on private repos on a paid plan. Columbia students qualify for the free [GitHub Student Developer Pack](https://education.github.com/pack), which includes GitHub Pro; once that's active, enable it under **Settings → Branches → Add branch protection rule** for `main`, checking "Require a pull request before merging." Until then, rule 1 is enforced by convention — please follow it manually.
+**Branch protection on `main` is active and enforced by GitHub**, not just convention: direct pushes are rejected, a PR is required, and at least one other collaborator's approval is required before merging — including for the repo owner. Force-pushes and branch deletion on `main` are also blocked. (This repo is public, which is what makes free branch protection available; see **Settings → Branches** to view or adjust the rule.)
 
 ## Timeline
 
