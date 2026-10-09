@@ -212,29 +212,41 @@ Model 3 plugs its own method (two models: mailed and not mailed) and its own eva
 
 ---
 
-## Repository Structure (tentative)
+## Repository Structure
 
 ```
 .
 ├── README.md
 ├── requirements.txt
-├── .env.example              # API keys / config template (never commit .env)
-├── data/                     # gitignored — local raw & processed data
+├── .env.example                      # API keys / config template (never commit .env)
+├── data/                             # gitignored — local raw & processed data (each member downloads their own)
 │   ├── raw/
 │   └── processed/
-├── notebooks/                # EDA and experiments (prefix with initials + number, e.g. jw_01_eda.ipynb)
+├── docs/                             # design docs, meeting notes, progress reports, presentations
+│   ├── agent_design/                 # why each agent's choices were made, one doc per agent
+│   │   ├── data_agent_design.md              # Step 1 — Data Agent
+│   │   ├── data_agent_team_summary.md        # Step 1 — Data Agent, 5-minute team summary
+│   │   ├── feature_agent_2a_design.md        # Step 2A — Feature Agent, shared-table design
+│   │   └── feature_agent_2b_design.md        # Step 2B — Feature Agent, per-model table design
+│   ├── weekly-meeting-notes/         # dated notes from mentor/team meetings
+│   ├── weekly-progress-report/       # weekly progress write-ups
+│   └── workflow-drafts-and-presentations/   # slide decks and drafts shown to mentors
+├── notebooks/                        # EDA and experiments (prefix with initials + number, e.g. jw_01_eda.ipynb)
+├── reports/
+│   └── figures/                      # generated charts (e.g. Model 3's Qini curve)
+├── validation/                       # Data Agent: standalone assumption-verification script + report
 ├── src/
-│   ├── ingestion/            # Step 1 — Data Agent + tools
-│   ├── features/             # Step 2 — Feature Agent + tools
-│   ├── modeling/             # Step 3 — Modeling Agent + tools
-│   ├── evaluation/           # Step 4 — Evaluation Agent + tools
-│   ├── scoring/              # Step 5 — Scoring + tools
-│   ├── api/                  # Model-serving REST API
-│   ├── app/                  # Step 6 — Decision Lab UI
-│   └── agents/               # Step 7 — Decision Support Agent + shared agent utilities
-├── tests/
-├── reports/                  # weekly write-ups, midterm/final reports, figures
-└── docs/                     # design notes, data dictionary, meeting notes
+│   ├── preprocessing/                # Step 1 — Data Agent: ingest.py, build_spine.py
+│   ├── features/                     # Steps 2A/2B — Feature Agent: shared table + per-model tables
+│   ├── modeling/                     # Step 3 — Modeling Agent (e.g. model3_baseline.py)
+│   ├── evaluation/                   # Step 4 — Evaluation Agent (not yet built)
+│   ├── scoring/                      # Step 5 — Scoring (not yet built)
+│   ├── api/                          # Model-serving REST API (not yet built)
+│   ├── app/                          # Step 6 — Decision Lab UI (not yet built)
+│   └── agents/                       # Step 7 — Decision Support Agent (not yet built)
+└── tests/
+    ├── preprocessing/                # Data Agent tests
+    └── features/                     # Feature Agent tests (unit + real-data acceptance)
 ```
 
 ---
@@ -276,18 +288,19 @@ cp .env.example .env              # then fill in API keys
 ### Run the pipeline
 
 ```bash
-python preprocessing/ingest.py        # Step 1, Data Agent: clean tables
-python preprocessing/build_spine.py   # Step 1, Data Agent: household x campaign table
-python src/features/build_2a.py       # Step 2A, Feature Agent: shared feature table + run report
-python src/features/build_2b.py       # Step 2B, Feature Agent: one table per model + run report
-pytest tests                          # unit tests
+python src/preprocessing/ingest.py       # Step 1, Data Agent: clean tables
+python src/preprocessing/build_spine.py  # Step 1, Data Agent: household x campaign table
+python src/features/build_2a.py          # Step 2A, Feature Agent: shared feature table + run report
+python src/features/build_2b.py          # Step 2B, Feature Agent: one table per model + run report
+python src/modeling/model3_baseline.py   # Step 3, Modeling Agent: Model 3 (uplift) T-learner baseline
+pytest tests                             # unit tests
 python tests/features/acceptance_2a.py   # real-data acceptance checks (slow, ~1 min)
 python tests/features/acceptance_2b.py   # real-data acceptance checks
 ```
 
 Step 2A writes `data/processed/features_household_campaign.parquet` (75,000 rows x 47 columns) and `feature_2a_report.md`. What every column means, and which ones a model may use, is in `src/features/feature_2a_spec.yaml`.
 
-Step 2B writes `data/processed/model{1,2,3}_table.parquet` and `feature_2b_report.md`. Which rows and which answer column each model gets is in `src/features/feature_2b_spec.yaml` (why, in `docs/feature_agent_2b_design.md`): Model 1 is 7,208 mailed rows (889 redeemed); Model 2 is 254 redeemed TypeB/C rows; Model 3 is 43,396 TypeB/C rows (3,229 treated, 40,167 clean control).
+Step 2B writes `data/processed/model{1,2,3}_table.parquet` and `feature_2b_report.md`. Which rows and which answer column each model gets is in `src/features/feature_2b_spec.yaml` (why, in `docs/agent_design/feature_agent_2b_design.md`): Model 1 is 7,208 mailed rows (889 redeemed); Model 2 is 254 redeemed TypeB/C rows; Model 3 is 43,396 TypeB/C rows (3,229 treated, 40,167 clean control).
 
 *(Commands for the later steps and the API/UI will be added as components are built.)*
 
@@ -340,7 +353,7 @@ Step 2B writes `data/processed/model{1,2,3}_table.parquet` and `feature_2b_repor
 4. Never commit raw data, `.env`, or API keys.
 5. Clear notebook outputs before committing.
 
-Branch protection enforcing rule 1 (blocking direct pushes to `main` server-side) is pending a GitHub Pro upgrade — this repo is private, and GitHub only allows branch protection rules on private repos on a paid plan. Columbia students qualify for the free [GitHub Student Developer Pack](https://education.github.com/pack), which includes GitHub Pro; once that's active, enable it under **Settings → Branches → Add branch protection rule** for `main`, checking "Require a pull request before merging." Until then, rule 1 is enforced by convention — please follow it manually.
+**Branch protection on `main` is active and enforced by GitHub**, not just convention: direct pushes are rejected, a PR is required, and at least one other collaborator's approval is required before merging — including for the repo owner. Force-pushes and branch deletion on `main` are also blocked. (This repo is public, which is what makes free branch protection available; see **Settings → Branches** to view or adjust the rule.)
 
 ## Timeline
 

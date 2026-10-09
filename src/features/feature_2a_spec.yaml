@@ -1,9 +1,9 @@
 # Feature Agent, step 2A: instruction document.
 # The code reads this file; it is the single source of truth for what 2A builds.
-# Why each choice was made: docs/feature_agent_2a_design.md
+# Why each choice was made: docs/agent_design/feature_agent_2a_design.md
 
 input:
-  spine: spine_household_campaign.parquet     # from the Data Agent (preprocessing/build_spine.py)
+  spine: spine_household_campaign.parquet     # from the Data Agent (src/preprocessing/build_spine.py)
   tables: [transaction_data, coupon, coupon_redempt, product, hh_demographic, causal_data]
   expected:                                   # stop if the spine does not match
     rows: 75000
