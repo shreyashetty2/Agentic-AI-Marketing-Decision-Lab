@@ -212,29 +212,40 @@ Model 3 plugs its own method (two models: mailed and not mailed) and its own eva
 
 ---
 
-## Repository Structure (tentative)
+## Repository Structure
 
 ```
 .
 ├── README.md
 ├── requirements.txt
-├── .env.example              # API keys / config template (never commit .env)
-├── data/                     # gitignored — local raw & processed data
+├── .env.example                      # API keys / config template (never commit .env)
+├── data/                             # gitignored — local raw & processed data (each member downloads their own)
 │   ├── raw/
 │   └── processed/
-├── notebooks/                # EDA and experiments (prefix with initials + number, e.g. jw_01_eda.ipynb)
+├── docs/                             # design docs, meeting notes, progress reports, presentations
+│   ├── data_agent_design.md          # Step 1 — Data Agent: why each cleaning/validation choice was made
+│   ├── data_agent_team_summary.md    # Step 1 — Data Agent: 5-minute team summary
+│   ├── feature_agent_2a_design.md    # Step 2A — Feature Agent: shared-table design
+│   ├── feature_agent_2b_design.md    # Step 2B — Feature Agent: per-model table design
+│   ├── meeting-notes/                # dated notes from mentor/team meetings
+│   ├── progress-reports/             # weekly progress write-ups
+│   └── presentations/                # slide decks shown to mentors
+├── notebooks/                        # EDA and experiments (prefix with initials + number, e.g. jw_01_eda.ipynb)
+├── reports/
+│   └── figures/                      # generated charts (e.g. Model 3's Qini curve)
+├── validation/                       # Data Agent: standalone assumption-verification script + report
 ├── src/
-│   ├── ingestion/            # Step 1 — Data Agent + tools
-│   ├── features/             # Step 2 — Feature Agent + tools
-│   ├── modeling/             # Step 3 — Modeling Agent + tools
-│   ├── evaluation/           # Step 4 — Evaluation Agent + tools
-│   ├── scoring/              # Step 5 — Scoring + tools
-│   ├── api/                  # Model-serving REST API
-│   ├── app/                  # Step 6 — Decision Lab UI
-│   └── agents/               # Step 7 — Decision Support Agent + shared agent utilities
-├── tests/
-├── reports/                  # weekly write-ups, midterm/final reports, figures
-└── docs/                     # design notes, data dictionary, meeting notes
+│   ├── preprocessing/                # Step 1 — Data Agent: ingest.py, build_spine.py
+│   ├── features/                     # Steps 2A/2B — Feature Agent: shared table + per-model tables
+│   ├── modeling/                     # Step 3 — Modeling Agent (e.g. model3_baseline.py)
+│   ├── evaluation/                   # Step 4 — Evaluation Agent (not yet built)
+│   ├── scoring/                      # Step 5 — Scoring (not yet built)
+│   ├── api/                          # Model-serving REST API (not yet built)
+│   ├── app/                          # Step 6 — Decision Lab UI (not yet built)
+│   └── agents/                       # Step 7 — Decision Support Agent (not yet built)
+└── tests/
+    ├── preprocessing/                # Data Agent tests
+    └── features/                     # Feature Agent tests (unit + real-data acceptance)
 ```
 
 ---
@@ -276,11 +287,12 @@ cp .env.example .env              # then fill in API keys
 ### Run the pipeline
 
 ```bash
-python preprocessing/ingest.py        # Step 1, Data Agent: clean tables
-python preprocessing/build_spine.py   # Step 1, Data Agent: household x campaign table
-python src/features/build_2a.py       # Step 2A, Feature Agent: shared feature table + run report
-python src/features/build_2b.py       # Step 2B, Feature Agent: one table per model + run report
-pytest tests                          # unit tests
+python src/preprocessing/ingest.py       # Step 1, Data Agent: clean tables
+python src/preprocessing/build_spine.py  # Step 1, Data Agent: household x campaign table
+python src/features/build_2a.py          # Step 2A, Feature Agent: shared feature table + run report
+python src/features/build_2b.py          # Step 2B, Feature Agent: one table per model + run report
+python src/modeling/model3_baseline.py   # Step 3, Modeling Agent: Model 3 (uplift) T-learner baseline
+pytest tests                             # unit tests
 python tests/features/acceptance_2a.py   # real-data acceptance checks (slow, ~1 min)
 python tests/features/acceptance_2b.py   # real-data acceptance checks
 ```
