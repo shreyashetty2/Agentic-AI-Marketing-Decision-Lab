@@ -231,7 +231,7 @@ Model 3 plugs its own method (two models: mailed and not mailed) and its own eva
 │   ├── weekly-meeting-notes/         # dated notes from mentor/team meetings
 │   ├── weekly-progress-report/       # weekly progress write-ups
 │   └── workflow-drafts-and-presentations/   # slide decks and drafts shown to mentors
-├── notebooks/                        # EDA and experiments (prefix with initials + number, e.g. jw_01_eda.ipynb)
+├── notebooks/                        # EDA and experiments (for any trial and pre-final notebooks prefix with name + number, e.g. john_01_eda.ipynb and remaining ones name based on function)
 ├── reports/
 │   └── figures/                      # generated charts (e.g. Model 3's Qini curve)
 ├── validation/                       # Data Agent: standalone assumption-verification script + report
