@@ -135,6 +135,14 @@ outcome:   # measured from start_day to end_day inclusive
   bought_campaign_product_excl_display:
     desc: "Model 3 variant. As above, excluding display only."
     blank_when: [type_a]
+  bought_campaign_product_without_redemption:
+    desc: >
+      Model 3 refinement (mentor feedback). 1 if the household bought this campaign's products
+      (same unconfounded definition as the main outcome) but NOT via a coupon they actually
+      redeemed for this campaign. Isolates purchases that would have happened regardless of the
+      mailer from the main outcome, which counts any qualifying purchase as a "success". Always 0
+      for control households (they have no coupon to redeem). TypeB/C only.
+    blank_when: [type_a]
 
 filter:
   mailed_overlapping_campaign:
@@ -175,6 +183,7 @@ done_when:   # acceptance checks; all must pass
   known_numbers:
     - "redeemed_flag = 1 on 889 mailed rows"
     - "bought_campaign_product_excl_display_flyer = 1 on 11,838 rows; excl_display = 1 on 13,235"
+    - "bought_campaign_product_without_redemption = 1 on 1,407 of the 1,596 treated households who bought (88.2%)"
     - "Household 208, campaign 18: campaign_product_spend_during = 209.58"
   values:
     - "No negative spend or counts; every share between 0 and 1"
