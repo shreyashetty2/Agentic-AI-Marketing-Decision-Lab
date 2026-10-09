@@ -48,7 +48,9 @@ models:
       TypeB/C rows that would otherwise be counted as untreated controls while actually treated
       by a different, concurrently-running campaign.
     label: bought_campaign_product_excl_display_flyer
-    sensitivity_label: bought_campaign_product_excl_display   # excludes display-driven purchases only, not flyer too
+    sensitivity_label:
+      - bought_campaign_product_excl_display       # excludes display-driven purchases only, not flyer too
+      - bought_campaign_product_without_redemption # mentor feedback: isolates purchases NOT tied to an actually-redeemed coupon
     treatment_column: mailed_flag   # splits rows between Model T and Model C; NEVER a feature column
     expected_rows: 43396
     expected_treated_rows: 3229
