@@ -1,4 +1,4 @@
-"""Real-data acceptance checks for step 2B (the done_when list in docs/feature_agent_2b_design.md).
+"""Real-data acceptance checks for step 2B (the done_when list in docs/agent_design/feature_agent_2b_design.md).
 
     python tests/features/acceptance_2b.py --processed data/processed
 """

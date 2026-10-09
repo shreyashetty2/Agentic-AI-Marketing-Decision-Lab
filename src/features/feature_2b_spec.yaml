@@ -1,7 +1,7 @@
 # Feature Agent, step 2B: instruction document.
 # The code reads this file; it is the single source of truth for which rows and which answer
 # column each model gets from 2A's shared table.
-# Why each choice was made: docs/feature_agent_2b_design.md
+# Why each choice was made: docs/agent_design/feature_agent_2b_design.md
 
 input:
   table: features_household_campaign.parquet   # from Feature Agent 2A (src/features/build_2a.py)
@@ -42,7 +42,7 @@ models:
     rows: "campaign_type != 'A' and (mailed_flag == 1 or mailed_overlapping_campaign == 0)"
     rows_desc: >
       TypeB/C only (TypeA's per-household coupon exposure is unknown, so there is no reliable
-      "eligible product" set to define the outcome on -- see 2A design doc / docs/feature_agent_2b_design.md).
+      "eligible product" set to define the outcome on -- see 2A design doc / docs/agent_design/feature_agent_2b_design.md).
       Every mailed household (Treatment), plus every household NOT mailed this campaign AND not
       mailed any other campaign whose window overlaps it (clean Control). This removes the 19,104
       TypeB/C rows that would otherwise be counted as untreated controls while actually treated

@@ -223,13 +223,14 @@ Model 3 plugs its own method (two models: mailed and not mailed) and its own eva
 │   ├── raw/
 │   └── processed/
 ├── docs/                             # design docs, meeting notes, progress reports, presentations
-│   ├── data_agent_design.md          # Step 1 — Data Agent: why each cleaning/validation choice was made
-│   ├── data_agent_team_summary.md    # Step 1 — Data Agent: 5-minute team summary
-│   ├── feature_agent_2a_design.md    # Step 2A — Feature Agent: shared-table design
-│   ├── feature_agent_2b_design.md    # Step 2B — Feature Agent: per-model table design
-│   ├── meeting-notes/                # dated notes from mentor/team meetings
-│   ├── progress-reports/             # weekly progress write-ups
-│   └── presentations/                # slide decks shown to mentors
+│   ├── agent_design/                 # why each agent's choices were made, one doc per agent
+│   │   ├── data_agent_design.md              # Step 1 — Data Agent
+│   │   ├── data_agent_team_summary.md        # Step 1 — Data Agent, 5-minute team summary
+│   │   ├── feature_agent_2a_design.md        # Step 2A — Feature Agent, shared-table design
+│   │   └── feature_agent_2b_design.md        # Step 2B — Feature Agent, per-model table design
+│   ├── weekly-meeting-notes/         # dated notes from mentor/team meetings
+│   ├── weekly-progress-report/       # weekly progress write-ups
+│   └── workflow-drafts-and-presentations/   # slide decks and drafts shown to mentors
 ├── notebooks/                        # EDA and experiments (prefix with initials + number, e.g. jw_01_eda.ipynb)
 ├── reports/
 │   └── figures/                      # generated charts (e.g. Model 3's Qini curve)
@@ -299,7 +300,7 @@ python tests/features/acceptance_2b.py   # real-data acceptance checks
 
 Step 2A writes `data/processed/features_household_campaign.parquet` (75,000 rows x 47 columns) and `feature_2a_report.md`. What every column means, and which ones a model may use, is in `src/features/feature_2a_spec.yaml`.
 
-Step 2B writes `data/processed/model{1,2,3}_table.parquet` and `feature_2b_report.md`. Which rows and which answer column each model gets is in `src/features/feature_2b_spec.yaml` (why, in `docs/feature_agent_2b_design.md`): Model 1 is 7,208 mailed rows (889 redeemed); Model 2 is 254 redeemed TypeB/C rows; Model 3 is 43,396 TypeB/C rows (3,229 treated, 40,167 clean control).
+Step 2B writes `data/processed/model{1,2,3}_table.parquet` and `feature_2b_report.md`. Which rows and which answer column each model gets is in `src/features/feature_2b_spec.yaml` (why, in `docs/agent_design/feature_agent_2b_design.md`): Model 1 is 7,208 mailed rows (889 redeemed); Model 2 is 254 redeemed TypeB/C rows; Model 3 is 43,396 TypeB/C rows (3,229 treated, 40,167 clean control).
 
 *(Commands for the later steps and the API/UI will be added as components are built.)*
 
