@@ -334,7 +334,7 @@ Step 2B writes `data/processed/model{1,2,3}_table.parquet` and `feature_2b_repor
 
 **No direct commits or pushes to `main`, ever — PRs only.** This is a hard rule, not a suggestion, so two people working on the same table (e.g. Feature Agent 2B) don't silently overwrite each other or create conflicting commits on main.
 
-1. Branch from `main` using `feature/<short-description>` (or `docs/...`, `fix/...`).
+1. Branch from `main` using `<type>/<your-name>/<short-description>` — type is `feature`, `docs`, or `fix`; name is your first name, lowercase (e.g. `feature/shreya/feature-agent-2b`, `docs/pranav/readme-run-pipeline`). This makes it obvious at a glance who owns a branch and what it's for.
 2. Commit and push your branch, then open a pull request into `main`.
 3. Get at least one reviewer's sign-off before merging. Only merge your own PR after that.
 4. Never commit raw data, `.env`, or API keys.
