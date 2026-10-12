@@ -80,8 +80,13 @@ def compute_outcomes(tables: Tables, causal: pd.DataFrame | Path) -> pd.DataFram
         model3 AS (
             SELECT b.household_key, b.campaign,
                    max(CASE WHEN coalesce(p.on_display, 0) = 0 AND coalesce(p.in_flyer, 0) = 0 THEN 1 ELSE 0 END) AS excl_both,
-                   max(CASE WHEN coalesce(p.on_display, 0) = 0 THEN 1 ELSE 0 END) AS excl_display
-            FROM buys b LEFT JOIN promoted p USING (product_id, store_id, week_no)
+                   max(CASE WHEN coalesce(p.on_display, 0) = 0 THEN 1 ELSE 0 END) AS excl_display,
+                   max(CASE WHEN coalesce(p.on_display, 0) = 0 AND coalesce(p.in_flyer, 0) = 0
+                             AND rp.product_id IS NOT NULL THEN 1 ELSE 0 END) AS via_redemption
+            FROM buys b
+            LEFT JOIN promoted p USING (product_id, store_id, week_no)
+            LEFT JOIN redeemed_products rp
+                ON rp.household_key = b.household_key AND rp.campaign = b.campaign AND rp.product_id = b.product_id
             WHERE b.campaign_type <> 'A' GROUP BY ALL),
         overlap AS (
             SELECT DISTINCT s.household_key, s.campaign, 1 AS flag
@@ -96,6 +101,8 @@ def compute_outcomes(tables: Tables, causal: pd.DataFrame | Path) -> pd.DataFram
                    AS bought_campaign_product_excl_display_flyer,
                CASE WHEN s.campaign_type <> 'A' THEN coalesce(model3.excl_display, 0) END::DOUBLE
                    AS bought_campaign_product_excl_display,
+               CASE WHEN s.campaign_type <> 'A' THEN coalesce(model3.excl_both, 0) - coalesce(model3.via_redemption, 0) END::DOUBLE
+                   AS bought_campaign_product_without_redemption,
                coalesce(overlap.flag, 0)::INT AS mailed_overlapping_campaign
         FROM spine s
         LEFT JOIN spend USING (household_key, campaign)
