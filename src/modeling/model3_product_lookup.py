@@ -1,6 +1,7 @@
 """Model 3 product-level drill-down: for a given campaign (and optionally one product or coupon
 within it), show the actual product name, its observed uplift, and whether treated households
-bought it without ever redeeming the coupon.
+bought it without ever redeeming the coupon. Omit --campaign to scan all 25 TypeB/C campaigns at
+once and rank every eligible product by how often it's bought without redemption.
 
 model3_uplift.py and model3_redemption_analysis.py report Model 3's results aggregated across a
 whole campaign's eligible products. This answers the finer-grained question: for THIS product, in
@@ -9,12 +10,14 @@ THIS campaign, what happened? Computed directly from transaction_data + causal_d
 separate by product instead of aggregated across a campaign's whole product list).
 
 Run from the repo folder:
-    python src/modeling/model3_product_lookup.py --campaign 29                    # top products in a campaign
+    python src/modeling/model3_product_lookup.py                                  # all campaigns, ranked, saved to CSV
+    python src/modeling/model3_product_lookup.py --campaign 29                    # top products in one campaign
     python src/modeling/model3_product_lookup.py --campaign 29 --product 1133018  # one specific product
     python src/modeling/model3_product_lookup.py --campaign 29 --coupon 10000089073  # one specific coupon
 
 Input : data/processed/*.parquet (from src/preprocessing/ingest.py)
-Output: prints a table to the console
+Output: prints a table to the console; with no --campaign, also writes
+        data/processed/model3_product_redemption_summary.csv (every qualifying product, full list)
 """
 import argparse
 from pathlib import Path
@@ -134,12 +137,48 @@ def product_lookup(con: duckdb.DuckDBPyConnection, causal: Path, campaign_id: in
     result["observed_uplift"] = (result["treated_rate"] - result["control_rate"]).round(4)
     bought_float = result["n_treated_bought"].astype(float).replace(0, float("nan"))
     result["pct_without_redemption"] = (result["n_without_redemption"] / bought_float * 100).round(1)
+    result.insert(0, "campaign", campaign_id)
     return result if product_id or coupon_upc else result.head(top_n)
+
+
+def typebc_campaigns(con: duckdb.DuckDBPyConnection) -> list[int]:
+    return con.execute(
+        "SELECT campaign FROM campaign_desc WHERE description != 'TypeA' ORDER BY campaign"
+    ).df()["campaign"].tolist()
+
+
+def all_campaigns_product_summary(con: duckdb.DuckDBPyConnection, causal: Path, min_treated_bought: int = 5) -> pd.DataFrame:
+    """Every eligible product across all 25 TypeB/C campaigns (a product appearing in more than
+    one campaign is summed across its appearances), ranked by how many treated households bought
+    it WITHOUT ever redeeming the coupon -- the direct answer to "which products get bought
+    regardless of the mailer". Campaign-level uplift isn't meaningfully summable across campaigns
+    with different population sizes, so this view reports volume and redemption rate only; use
+    product_lookup() with a specific --campaign for a product's uplift within one campaign."""
+    campaigns = typebc_campaigns(con)
+    print(f"Scanning {len(campaigns)} TypeB/C campaigns for every eligible product...")
+    per_campaign = []
+    for i, campaign_id in enumerate(campaigns, 1):
+        df = product_lookup(con, causal, campaign_id, product_id=None, coupon_upc=None, top_n=10**9)
+        per_campaign.append(df)
+        print(f"  [{i}/{len(campaigns)}] campaign {campaign_id}: {len(df):,} eligible products")
+    all_products = pd.concat(per_campaign, ignore_index=True)
+
+    summary = (all_products.groupby(["product_id", "commodity_desc", "sub_commodity_desc", "brand"], as_index=False)
+               .agg(n_campaigns=("campaign", "nunique"),
+                    n_treated_bought=("n_treated_bought", "sum"),
+                    n_control_bought=("n_control_bought", "sum"),
+                    n_without_redemption=("n_without_redemption", "sum")))
+    bought_float = summary["n_treated_bought"].astype(float).replace(0, float("nan"))
+    summary["pct_without_redemption"] = (summary["n_without_redemption"] / bought_float * 100).round(1)
+    summary = summary[summary["n_treated_bought"] >= min_treated_bought]
+    return summary.sort_values("n_without_redemption", ascending=False).reset_index(drop=True)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--campaign", type=int, required=True)
+    parser.add_argument("--campaign", type=int, default=None,
+                         help="Omit to scan all 25 TypeB/C campaigns and rank products by how "
+                              "often they're bought without redeeming the coupon")
     parser.add_argument("--product", type=int, default=None, help="Show only this product_id")
     parser.add_argument("--coupon", type=str, default=None, help="Show only products under this coupon_upc")
     parser.add_argument("--top", type=int, default=15, help="How many products to show when not filtered (default 15)")
@@ -148,10 +187,22 @@ def main() -> None:
     args = parser.parse_args()
 
     con = _connect(args.processed)
-    result = product_lookup(con, args.causal, args.campaign, args.product, args.coupon, args.top)
-
     pd.set_option("display.width", 160)
     pd.set_option("display.max_colwidth", 30)
+
+    if args.campaign is None:
+        summary = all_campaigns_product_summary(con, args.causal)
+        out_path = args.processed / "model3_product_redemption_summary.csv"
+        summary.to_csv(out_path, index=False)
+        print(f"\nTop {args.top} products by volume bought WITHOUT redeeming the coupon "
+              f"(all 25 TypeB/C campaigns combined, products with >=5 treated purchases):")
+        cols = ["product_id", "commodity_desc", "sub_commodity_desc", "brand", "n_campaigns",
+                "n_treated_bought", "n_without_redemption", "pct_without_redemption"]
+        print(summary[cols].head(args.top).to_string(index=False))
+        print(f"\nFull list ({len(summary):,} products): {out_path}")
+        return
+
+    result = product_lookup(con, args.causal, args.campaign, args.product, args.coupon, args.top)
     cols = ["product_id", "commodity_desc", "sub_commodity_desc", "brand", "n_treated_bought",
             "n_control_bought", "observed_uplift", "n_without_redemption", "pct_without_redemption"]
     print(f"\nCampaign {args.campaign}"

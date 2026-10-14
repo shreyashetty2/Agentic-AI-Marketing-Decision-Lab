@@ -86,6 +86,26 @@ def spend_tier_segmentation(table: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+DEMOGRAPHIC_COLUMNS = ["homeowner_desc", "kid_category_desc", "classification_1"]
+
+
+def demographic_segmentation(table: pd.DataFrame, column: str, min_n: int = 20) -> pd.DataFrame:
+    """Observed uplift by demographic category, on the subset of rows with a demographic record
+    (has_demographics == 1 -- only 801 of 2,500 households, ~22% of Model 3's rows, so this is a
+    partial-coverage view, not a full-population one; categories below min_n treated households
+    are dropped as too small to read anything into)."""
+    sub = table[table["has_demographics"] == 1]
+    rows = []
+    for category, group in sub.groupby(column, observed=True):
+        t, c = group[group[TREATMENT] == 1], group[group[TREATMENT] == 0]
+        if len(t) < min_n:
+            continue
+        rows.append({column: category, "n_treated": len(t), "n_control": len(c),
+                     "treated_rate": t[LABEL].mean(), "control_rate": c[LABEL].mean(),
+                     "observed_uplift": t[LABEL].mean() - c[LABEL].mean()})
+    return pd.DataFrame(rows).sort_values("observed_uplift", ascending=False).reset_index(drop=True)
+
+
 def redemption_segmentation(table: pd.DataFrame) -> dict:
     """Of treated households who bought, how many did so via an actually-redeemed coupon vs. not?
     (Feature Agent 2B's bought_campaign_product_without_redemption, src/features/outcomes.py.)"""
@@ -167,8 +187,8 @@ def qini_curve(test: pd.DataFrame, out_path: Path) -> float:
     return coefficient
 
 
-def render_report(ate: dict, spend_tiers: pd.DataFrame, redemption: dict, result: dict,
-                   qini_coefficient: float, train_t_df, train_c_df) -> str:
+def render_report(ate: dict, spend_tiers: pd.DataFrame, redemption: dict, demographic_results: dict,
+                   result: dict, qini_coefficient: float, train_t_df, train_c_df) -> str:
     return f"""# Model 3: full uplift model report
 
 Full dataset, no subsampling: {ate['n_treated']:,} treated, {ate['n_control']:,} control rows.
@@ -203,6 +223,13 @@ without ever redeeming the coupon -- direct evidence consistent with (2): most o
 outcome counts as "success" would have happened regardless of the mailer, concentrated among
 heavy spenders.
 
+## 4. Does lift vary by demographics?
+
+Partial-coverage view: only households with a demographic record (801 of 2,500, ~22% of Model 3's
+rows after the TypeB/C + clean-control scoping). Categories with fewer than 20 treated households
+are dropped as too small to read anything into.
+
+{"".join(f"By {col}:\n```\n{seg.to_string(index=False)}\n```\n\n" for col, seg in demographic_results.items())}
 ## Model setup
 
 - Train: {len(train_t_df):,} treated + {len(train_c_df):,} control rows (ALL available control
@@ -254,6 +281,16 @@ def main() -> None:
     print(f"{redemption['n_without_redemption']:,} of {redemption['n_treated_bought']:,} "
           f"treated purchasers ({redemption['pct_without_redemption']:.1f}%) bought without redeeming")
 
+    print(f"\n--- 4. Demographic segmentation (subset with demographics only: "
+          f"{(table['has_demographics']==1).sum():,} of {len(table):,} rows, "
+          f"{(table['has_demographics']==1).mean():.0%}) ---")
+    demographic_results = {}
+    for column in DEMOGRAPHIC_COLUMNS:
+        seg = demographic_segmentation(table, column)
+        demographic_results[column] = seg
+        print(f"\nBy {column}:")
+        print(seg.to_string(index=False))
+
     train, test = time_split(table)
     print(f"\n--- Training: {train['campaign'].nunique()} campaigns, {len(train):,} rows | "
           f"Testing: {test['campaign'].nunique()} campaigns, {len(test):,} rows ---")
@@ -273,8 +310,8 @@ def main() -> None:
     print(f"\nQini coefficient: {qini_coefficient:.2f}  Chart: {qini_path}")
 
     report_path = args.processed / "model3_uplift_report.md"
-    report_path.write_text(render_report(ate, spend_tiers, redemption, result, qini_coefficient,
-                                          train_t_df, train_c_df))
+    report_path.write_text(render_report(ate, spend_tiers, redemption, demographic_results, result,
+                                          qini_coefficient, train_t_df, train_c_df))
     print(f"\nReport: {report_path}")
 
 
