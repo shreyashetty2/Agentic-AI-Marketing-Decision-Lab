@@ -67,11 +67,37 @@ region where both groups actually overlap was shown earlier to recover a clean m
 signal). The per-tier segmentation above sidesteps this because it compares like-for-like spend
 ranges directly, rather than ranking the full population end to end.
 
+## Does lift vary by demographics?
+
+Added as a fourth segmentation, alongside spend tier. Partial-coverage view by construction: only
+801 of 2,500 households have a demographic record (22% of Model 3's rows after TypeB/C + clean
+control scoping), so this is read as a subsample finding, not a full-population one -- categories
+with fewer than 20 treated households are dropped as too small to read anything into. By
+homeowner status, number of kids, and age group: uplift is positive and broadly similar across
+every category (roughly 19-42 percentage points), with no demographic split anywhere near as
+sharp as the spend-tier one. That itself is informative: pre-campaign spend behavior is a much
+stronger predictor of how responsive a household is to the mailer than who they are demographically.
+
+## Product-level view (`model3_product_lookup.py`)
+
+Model 3's main outcome is aggregated across a whole campaign's eligible products ("did they buy
+*any* eligible product"). `src/modeling/model3_product_lookup.py` answers the finer-grained
+version -- for one specific product, in one specific campaign (or coupon), what happened,
+including the real product name (joined from `product.csv`). Run with no `--campaign` to scan all
+25 TypeB/C campaigns at once and rank every eligible product by how often it's bought without
+ever redeeming the coupon -- saves the full list (208 qualifying products, >=5 treated purchases)
+to `data/processed/model3_product_redemption_summary.csv`. The top of that list is dominated by
+everyday staples (eggs, pasta sauce, cheese, juice) bought without redemption 74-100% of the time
+-- individual-product confirmation of the same pattern as the aggregate 88.2% finding, not a
+separate result.
+
 ## How to run it
 
 ```bash
 python src/modeling/model3_uplift.py --processed data/processed
+python src/modeling/model3_product_lookup.py --top 20   # all campaigns, ranked, saved to CSV
 ```
 
-Runtime: ~6 seconds on the full dataset. Writes `data/processed/model3_uplift_report.md` and
-`reports/figures/model3_uplift_qini_curve.png`.
+Runtime: ~6s for the uplift model, ~3s for the all-campaigns product scan. Writes
+`data/processed/model3_uplift_report.md`, `reports/figures/model3_uplift_qini_curve.png`, and
+`data/processed/model3_product_redemption_summary.csv`.
