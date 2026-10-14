@@ -7,8 +7,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from modeling.model3_uplift import (  # noqa: E402
-    LABEL, TREATMENT, WITHOUT_REDEMPTION, ate_test, redemption_segmentation,
-    spend_tier_segmentation, time_split,
+    LABEL, TREATMENT, WITHOUT_REDEMPTION, ate_test, demographic_segmentation,
+    redemption_segmentation, spend_tier_segmentation, time_split,
 )
 
 
@@ -86,3 +86,26 @@ def test_time_split_is_chronological_and_covers_every_row():
     assert set(train["campaign"]) == {1, 2, 3}      # earliest 3 of 5 campaigns (60%)
     assert set(test["campaign"]) == {4, 5}
     assert train["start_day"].max() < test["start_day"].min()
+
+
+def test_demographic_segmentation_excludes_no_demographics_rows_and_small_categories():
+    table = pd.DataFrame([
+        # Homeowner: 3 treated [1,0,1]=0.667, 2 control [0,1]=0.5 -> uplift 0.167
+        {"has_demographics": 1, "homeowner_desc": "Homeowner", TREATMENT: 1, LABEL: 1},
+        {"has_demographics": 1, "homeowner_desc": "Homeowner", TREATMENT: 1, LABEL: 0},
+        {"has_demographics": 1, "homeowner_desc": "Homeowner", TREATMENT: 1, LABEL: 1},
+        {"has_demographics": 1, "homeowner_desc": "Homeowner", TREATMENT: 0, LABEL: 0},
+        {"has_demographics": 1, "homeowner_desc": "Homeowner", TREATMENT: 0, LABEL: 1},
+        # Renter: only 1 treated household -- below min_n=2, must be dropped
+        {"has_demographics": 1, "homeowner_desc": "Renter", TREATMENT: 1, LABEL: 1},
+        {"has_demographics": 1, "homeowner_desc": "Renter", TREATMENT: 0, LABEL: 0},
+        # No demographic record: must be excluded entirely, regardless of category/outcome
+        {"has_demographics": 0, "homeowner_desc": "Homeowner", TREATMENT: 1, LABEL: 1},
+    ])
+    result = demographic_segmentation(table, "homeowner_desc", min_n=2)
+    assert list(result["homeowner_desc"]) == ["Homeowner"]   # Renter dropped, no-demo row excluded
+    row = result.iloc[0]
+    assert row["n_treated"] == 3 and row["n_control"] == 2
+    assert row["treated_rate"] == pytest.approx(2 / 3)
+    assert row["control_rate"] == pytest.approx(0.5)
+    assert row["observed_uplift"] == pytest.approx(2 / 3 - 0.5)
