@@ -129,7 +129,9 @@ For a given household and campaign, how much does receiving the campaign actuall
 
 **Key business finding (the value-add over Model 1):** current campaigns disproportionately target the heaviest, most loyal spenders, who tend to buy the product anyway — a propensity model (Model 1) would misallocate budget to them because their overall purchase probability is high. Untargeted, moderate-spending households show the largest actual response gap between "mailed" and "not mailed." Uplift modeling isolates this true incremental impact to drive real incremental revenue, which Model 1 alone cannot surface.
 
-**Redemption-segmentation refinement (mentor feedback, 10/9 meeting):** the outcome above counts *any* qualifying purchase as a campaign success, including households who bought the product without ever using the coupon — direct evidence they'd have bought it anyway. `bought_campaign_product_without_redemption` (Feature Agent 2B, Model 3's second sensitivity label) isolates this directly: of the 1,596 treated TypeB/C households who bought an eligible product, only 189 (11.8%) did so via an actually-redeemed coupon — the other 1,407 (88.2%) bought it without ever touching the coupon. This sharpens the "sure things vs. persuadables" finding from an inference (based on spend level) into a direct observation (based on redemption records).
+**Does targeting add lift, and does it vary by household spend level?** Both tested directly on the full 43,396-row dataset (`src/modeling/model3_uplift.py`). A two-proportion z-test confirms the raw treated-vs-control gap isn't noise (49.4% vs. 13.8%, z=52.5, p≈0) — though that raw gap is still confounded by non-random targeting. Splitting households into thirds by historical spend (cutoffs from the treated group's own distribution, so each third has a comparable number of treated households) shows uplift falling monotonically as spend rises: ~26% incremental lift for low-spend households, ~14% for medium, down to ~9% for the heaviest spenders — and the trained T-learner reproduces the same ordering on held-out campaigns.
+
+**Redemption-segmentation finding:** the main outcome above counts *any* qualifying purchase as a campaign success, including households who bought the product without ever using the coupon — direct evidence they'd have bought it anyway. `bought_campaign_product_without_redemption` (Feature Agent 2B, Model 3's second sensitivity label) isolates this directly: of the 1,596 treated TypeB/C households who bought an eligible product, only 189 (11.8%) did so via an actually-redeemed coupon — the other 1,407 (88.2%) bought it without ever touching the coupon. This is direct, observed confirmation of the spend-tier finding above, not an inference.
 
 ---
 
@@ -296,8 +298,9 @@ python src/features/build_2a.py          # Step 2A, Feature Agent: shared featur
 python src/features/build_2b.py          # Step 2B, Feature Agent: one table per model + run report
 python src/modeling/model1_baseline.py   # Step 3, Modeling Agent: Model 1 (response) classifier baseline
 python src/modeling/model2_baseline.py   # Step 3, Modeling Agent: Model 2 (expected value) regressor baseline
-python src/modeling/model3_baseline.py   # Step 3, Modeling Agent: Model 3 (uplift) T-learner baseline
-python src/modeling/model3_redemption_analysis.py  # Model 3 redemption-segmentation analysis (mentor feedback)
+python src/modeling/model3_baseline.py   # Step 3, Modeling Agent: Model 3 (uplift) T-learner, quick sanity check
+python src/modeling/model3_uplift.py     # Step 3, Modeling Agent: Model 3 (uplift) full model, primary build
+python src/modeling/model3_redemption_analysis.py  # Model 3 redemption-segmentation analysis
 pytest tests                             # unit tests
 python tests/features/acceptance_2a.py   # real-data acceptance checks (slow, ~1 min)
 python tests/features/acceptance_2b.py   # real-data acceptance checks
