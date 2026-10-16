@@ -33,6 +33,7 @@ Output: data/processed/modeling_agent/model{n}/ predictions.parquet, locked_pred
 import argparse
 import hashlib
 import json
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -53,7 +54,7 @@ from modeling.decision_log import DecisionLog, check  # noqa: E402
 from modeling.learners import fill_blanks, fit_agent_candidate, importances  # noqa: E402
 from modeling.model1_evaluation import (CUTOFF_GAP, bootstrap_capture, campaign_calendar,  # noqa: E402
                                         forward_chain_folds, within_campaign_auc, within_campaign_capture)
-from modeling.owners import fit_owner, load_owner_table, owner_features  # noqa: E402
+from modeling.owners import fit_owner, load_owner_table, owner_features, owner_learner_features  # noqa: E402
 from modeling.proposals import approved_candidates, changes, load_proposals  # noqa: E402
 
 SPEC_PATH = Path(__file__).with_name("modeling_spec.yaml")
@@ -78,7 +79,9 @@ def resolve_candidates(model_id: int, mcfg: dict) -> dict:
     compared with the owner's default (columns / learner / settings)."""
     out = {}
     for cid, c in mcfg["candidates"].items():
-        if c["source"] == "owner" or c.get("features") == "owner":
+        if c["source"] == "owner":
+            features = owner_learner_features(model_id, c["owner_learner"])
+        elif c.get("features") == "owner":
             features = owner_features(model_id)
         else:
             features = mcfg["feature_sets"][c["features"]]
@@ -154,13 +157,41 @@ def add_propensity(model_id: int, mcfg: dict, table: pd.DataFrame, log: Decision
     return table
 
 
+def model_scripts_on_git(model_id: int) -> list[str] | None:
+    """The model's scripts as committed to the repo (model{n}_*.py), or None if git is not available.
+    Committed only, so someone's local, unshared experiments do not count."""
+    try:
+        out = subprocess.run(["git", "ls-files", f"src/modeling/model{model_id}_*.py"], cwd=ROOT,
+                             capture_output=True, text=True, check=True).stdout.split()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return sorted(Path(f).name for f in out)
+
+
+def check_scripts(model_id: int, mcfg: dict, log: DecisionLog) -> None:
+    """The agent calls the owner's code through a fixed list (owners.py). If a teammate adds a new script for
+    this model -- possibly a newer, better model -- the agent would silently keep using the old one, so every
+    run compares the repo with the instruction file's list and flags anything new for a person."""
+    known = {mcfg["scripts"]["current"], *mcfg["scripts"].get("others", [])}
+    found = model_scripts_on_git(model_id)
+    if found is None:
+        log.record("MOD-09", "git not available; could not check for new model scripts", "continue", "human_needed",
+                   "A teammate may have added a newer model the agent does not know about; check src/modeling by hand.")
+        return
+    new = [f for f in found if f not in known]
+    if new:
+        log.record("MOD-09", f"new script(s) for Model {model_id} in the repo: {new}; the agent's current model "
+                   f"comes from {mcfg['scripts']['current']}", "keep the current model, ask the owner", "human_needed",
+                   "If one of these is the owner's new current model, add it to modeling_spec.yaml (scripts) and "
+                   "owners.py; until then the agent judges an older model.", evidence={"new": new, "known": sorted(known)})
+
+
 def prepare_table(model_id: int, mcfg: dict, spec: dict, processed: Path, passed: list, log: DecisionLog,
                   proposals: list[dict] | None = None):
     """The owner's table, checked against the instructions, with blanks filled and (Model 3) propensity weights.
     proposals: the model's proposals.yaml entries; the approved ones become extra candidates."""
+    check_scripts(model_id, mcfg, log)
     table = load_owner_table(model_id, processed)
-    if model_id == 2:                              # the owner's own baseline formula, as a column
-        table = table.assign(usual_spend=model2_baseline.usual_spend(table))
     label, exp = mcfg["label"], mcfg["expected"]
     check(len(table) == exp["rows"], f"model {model_id}: {len(table):,} rows (expected {exp['rows']:,})", passed)
     if "positives" in exp:
@@ -385,6 +416,8 @@ def reproduce(agent: ModelingAgent, passed: list) -> dict:
         named = {"owner_forest": out["Random forest"], "owner_linear": out["Linear regression"],
                  "usual_spend": next(v for k, v in out.items() if k.startswith("Usual spend")),
                  "train_mean": next(v for k, v in out.items() if k.startswith("Training-set mean"))}
+        calibrated = agent.fit(camps, "owner_calibrated").predict(test)["score"]
+        named["owner_calibrated"] = {"mae": float(np.mean(np.abs(test[agent.label].to_numpy() - calibrated)))}
         for name, metrics in split.items():
             if name == "rows":
                 continue
