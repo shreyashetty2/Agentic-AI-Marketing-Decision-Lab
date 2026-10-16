@@ -30,7 +30,6 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # lets `features.*` / `modeling.*` import as a script
 
 from features.spec import blank_reasons, column_roles, load_spec  # noqa: E402
-from modeling import model2_baseline  # noqa: E402
 from modeling.agent import ROOT, load_modeling_spec, proposal_context  # noqa: E402
 from modeling.owners import load_owner_table  # noqa: E402
 from modeling.proposals import (column_problem, ledger_upsert, load_proposals, proposals_path,  # noqa: E402
@@ -58,7 +57,7 @@ TOOL = {
                     "expected": {"type": "string", "description": "What result would show it worked, or not."},
                     "add_columns": {"type": "array", "items": {"type": "string"}},
                     "drop_columns": {"type": "array", "items": {"type": "string"}},
-                    "family": {"type": "string", "enum": ["forest", "lightgbm", "logistic", "linear"]},
+                    "family": {"type": "string", "enum": ["forest", "lightgbm", "logistic", "linear", "median_linear"]},
                     "params": {"type": "object"},
                     "new_column": {"type": "object", "required": ["name", "definition"], "properties": {
                         "name": {"type": "string"},
@@ -81,8 +80,6 @@ def load_context(model_id: int, spec: dict, processed: Path) -> dict:
         raise SystemExit(f"[STOP] model {model_id}: the verdict is for run {verdict['run_id']} but the latest hand-off "
                          f"is {manifest['run_id']}; run the Evaluation Agent first")
     table = load_owner_table(model_id, processed)
-    if model_id == 2:
-        table = table.assign(usual_spend=model2_baseline.usual_spend(table))
     spec_2a = load_spec(ROOT / spec["input"]["feature_spec"])
     descs = {c: b.get("desc", "") for sec in ("profile", "outcome", "filter", "flag") for c, b in spec_2a[sec].items()}
     ctx = proposal_context(mcfg, spec, table, manifest["candidates"], column_roles(spec_2a), blank_reasons(spec_2a))
@@ -164,9 +161,9 @@ def build_brief(c: dict) -> str:
         "", "## Columns that exist but cannot be added as they are (a new_column idea could fix some)",
         *[f"- `{col}`: {why}" for col, why in unusable.items()],
         "", "## What you may change",
-        f"- Learners: forest, lightgbm, logistic{', linear' if mcfg['task'] == 'regress' else ''}"
+        f"- Learners: forest, lightgbm, logistic{', linear, median_linear' if mcfg['task'] == 'regress' else ''}"
         + (" (uplift: each is used as a pair, one for mailed and one for unmailed households)" if mcfg["task"] == "uplift" else "")
-        + (" (linear is for dollar answers only)" if mcfg["task"] != "regress" else ""),
+        + (" (linear and median_linear are for dollar answers only)" if mcfg["task"] != "regress" else ""),
         "- Settings (others are fixed; allowed ranges): " + "; ".join(
             f"{fam}: " + (", ".join(f"{k} {lo}-{hi}" for k, (lo, hi) in lim.items()) or "none")
             for fam, lim in c["spec"]["brain"]["allowed_params"].items()),

@@ -1,4 +1,6 @@
 """Tests for the Modeling Agent (src/modeling/agent.py, learners.py, owners.py, decision_log.py)."""
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -204,3 +206,55 @@ def test_importances_of_an_uplift_pair_average_the_two_models():
     t = _table().assign(mailed=lambda d: (d["household_key"] % 2).astype(int))
     imp = importances(fit_agent_candidate(t, "tl", "uplift", "logistic", {}, ["a", "b"], "label", "mailed"))
     assert list(imp)[0] == "a" and abs(sum(imp.values()) - 1) < 1e-3
+
+
+# --------------------------------------------------------------- Model 2's current model, and new owner scripts
+def test_model2_current_model_is_yuxins_calibrated_usual_spend_unchanged():
+    from modeling import model2_value
+    rng = np.random.default_rng(3)
+    t = pd.DataFrame({"usual_spend": rng.gamma(2, 5, 300)})
+    t[model2_value.LABEL] = 0.8 * t["usual_spend"] + 6 + rng.normal(0, 3, 300)
+    fitted = fit_owner(2, "calibrated", t, "owner_calibrated")
+    assert fitted.features == ["usual_spend"]
+    theirs = model2_value.CalibratedUsualSpend().fit(t).predict(t)
+    assert np.array_equal(fitted.predict(t)["score"], theirs)
+
+
+def test_a_new_model_script_in_the_repo_is_flagged_for_a_person(monkeypatch):
+    from modeling import agent as agent_mod
+    mcfg = {"scripts": {"current": "model2_value.py", "others": ["model2_baseline.py"]}}
+    log = DecisionLog("modeling", 2, "t")
+    monkeypatch.setattr(agent_mod, "model_scripts_on_git", lambda m: ["model2_baseline.py", "model2_value.py"])
+    agent_mod.check_scripts(2, mcfg, log)
+    assert log.records == []                                   # everything known: nothing to ask
+    monkeypatch.setattr(agent_mod, "model_scripts_on_git",
+                        lambda m: ["model2_baseline.py", "model2_better.py", "model2_value.py"])
+    agent_mod.check_scripts(2, mcfg, log)
+    rec = log.records[-1]
+    assert rec["check_id"] == "MOD-09" and rec["decided_by"] == "human_needed" and "model2_better.py" in rec["finding"]
+    monkeypatch.setattr(agent_mod, "model_scripts_on_git", lambda m: None)   # no git: say it could not check
+    agent_mod.check_scripts(2, mcfg, log)
+    assert log.records[-1]["decided_by"] == "human_needed" and "could not check" in log.records[-1]["finding"]
+
+
+def test_model_scripts_on_git_lists_this_repos_committed_scripts():
+    from modeling.agent import model_scripts_on_git
+    assert "model2_value.py" in model_scripts_on_git(2)
+
+
+def test_every_spec_script_list_names_its_current_script_and_the_owner_adapter_loads_from_it():
+    from modeling.agent import load_modeling_spec
+    from modeling.owners import OWNERS
+    spec = load_modeling_spec()
+    for m, mcfg in spec["models"].items():
+        assert Path(OWNERS[m]["table"].__file__).name == mcfg["scripts"]["current"], m
+
+
+def test_median_linear_is_a_learner_for_dollar_answers():
+    est = build_estimator("median_linear", "regress", {"quantile": 0.5, "alpha": 0, "solver": "highs"})
+    rng = np.random.default_rng(1)
+    X = pd.DataFrame({"u": rng.random(100)})
+    est.fit(X, 2 * X["u"] + 1)
+    assert np.allclose(est.predict(X), 2 * X["u"] + 1, atol=1e-6)
+    with pytest.raises(ValueError):
+        build_estimator("median_linear", "classify", {})

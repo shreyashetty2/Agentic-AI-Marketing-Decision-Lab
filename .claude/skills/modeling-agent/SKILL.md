@@ -69,11 +69,13 @@ Describe each kind in a few words the first time it appears:
   settings: number of trees, how many levels deep, smallest group of households a tree may split down to
 - logistic regression: one weighted formula of the columns, turned into a chance
 - linear regression: one weighted formula of the columns, giving dollars
+- calibrated usual spend (Model 2's current model): a straight line on usual spend alone, fit through the
+  middle of the answers so a few very big spenders don't pull it -- e.g. "spend = 0.8 x usual spend + $6"
 - LightGBM: trees built one after another, each fixing the mistakes of the ones before
 - Model 3's models are pairs: one learns from mailed households, one from unmailed; the difference
   between their predictions is the mailer's effect
 - "more columns" = the extra columns listed under `feature_sets` in the spec
-Settings are in the spec (`params`; the team's current model uses `forest_params`). Run time: Model 2
+Settings are in the spec (`params`). The team's current model is each model's `default`. Run time: Model 2
 ~10 s, Model 1 ~2 min, Model 3 ~5 min. Do not ask before running.
 
 **1b. Run both:**
@@ -104,10 +106,15 @@ which columns the model uses or which matter most.
 
 Model 2: lower dollar error is better, so "best first" means smallest error first.
 
+**If the Modeling Agent's report flags a new script (MOD-09)**, say it before the results, in one line:
+"Heads up: there's a new Model N script in the repo (<name>) that I'm not using yet. It may be a newer
+model; the owner should tell us whether it should become the current one."
+
 ## Answering questions
 
 - **Which columns does it use?** The current model's columns: `FEATURES` in the owner's script
-  (`src/modeling/model1_baseline.py`, `model2_baseline.py`, `model3_uplift.py`); meanings in
+  (`src/modeling/model1_baseline.py`, `model3_uplift.py`; Model 2's current model uses usual spend only,
+  `model2_value.py`); meanings in
   `src/features/feature_2a_spec.yaml`. Explain each in a few words.
 - **Which columns matter most?** "Columns the owner's model leans on most" in
   `data/processed/modeling_agent/modelN/report.md`. Say plainly that leaning on a column is not the same

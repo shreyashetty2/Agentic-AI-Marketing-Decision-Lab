@@ -21,7 +21,7 @@ def route(facts: dict, cfg: dict) -> tuple[str, str, list[str]]:
     """facts: gap_status, calibration_ok, comparison_ok (uplift only: enough overlap AND weighting balanced the
     groups; None otherwise), better_alternative (id or None),
     stability (share of folds that picked the most common candidate), all_within_noise, iteration.
-    cfg: max_iterations, stability_min_share, approve_requires_human.
+    cfg: max_iterations, stability_min_share, approve_requires_human, calibration_hint (optional, per model).
     Checked in order; the first rule that applies decides. Returns (verdict, decided_by, reasons)."""
     gap, calib = facts["gap_status"], facts["calibration_ok"]
     if facts.get("comparison_ok") is False:
@@ -39,8 +39,8 @@ def route(facts: dict, cfg: dict) -> tuple[str, str, list[str]]:
         return "approve", "rule", ["EVA-05: beats its baseline (95% interval above 0) and its numbers match reality"]
     if gap == "pass":
         return "send_back_modeling", "rule", [
-            "EVA-06: ranks well but the predicted level does not match reality; widen forecast ranges, do not "
-            "recalibrate on past errors (that made it worse when tested)"]
+            "EVA-06: beats its baseline, but its predicted level does not match reality (see calibration)"
+            + (f"; {cfg['calibration_hint']}" if cfg.get("calibration_hint") else "")]
     signs = []
     if facts.get("better_alternative"):
         signs.append(f"alternative {facts['better_alternative']} beats the owner's model beyond noise")

@@ -23,7 +23,7 @@ import yaml
 
 from modeling.learners import FAMILIES
 
-COMPLEXITY = {"linear": 1, "logistic": 1, "forest": 2, "lightgbm": 3}
+COMPLEXITY = {"linear": 1, "median_linear": 1, "logistic": 1, "forest": 2, "lightgbm": 3}
 AXES = ("columns", "learner", "settings")
 LEDGER_COLUMNS = ["model", "id", "round", "from", "title", "changes", "status", "approved",
                   "open_gap", "open_low", "open_high", "open_status",
@@ -46,7 +46,7 @@ def changes(cand: dict, default: dict) -> list[str]:
 def base_params(spec: dict, family: str) -> dict:
     """Starting settings for a learner when a proposal names it without settings."""
     return {"forest": spec["forest_params"], "lightgbm": spec["lightgbm_params"],
-            "logistic": {"max_iter": 2000}, "linear": {}}[family]
+            "logistic": {"max_iter": 2000}, "linear": {}, "median_linear": spec["median_linear_params"]}[family]
 
 
 def column_problem(col: str, ctx: dict) -> str | None:

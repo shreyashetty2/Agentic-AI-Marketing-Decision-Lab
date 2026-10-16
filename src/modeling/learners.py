@@ -13,13 +13,15 @@ import numpy as np
 import pandas as pd
 from lightgbm import LGBMClassifier, LGBMRegressor
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression, QuantileRegressor
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 FAMILIES = {
     ("logistic", "classify"): lambda p: make_pipeline(StandardScaler(), LogisticRegression(**p)),
     ("linear", "regress"): lambda p: make_pipeline(StandardScaler(), LinearRegression(**p)),
+    # a straight line fit through the middle (median) of the answers, as Model 2's current model is
+    ("median_linear", "regress"): lambda p: make_pipeline(StandardScaler(), QuantileRegressor(**p)),
     ("forest", "classify"): lambda p: RandomForestClassifier(**p),
     ("forest", "regress"): lambda p: RandomForestRegressor(**p),
     ("lightgbm", "classify"): lambda p: LGBMClassifier(**p),
@@ -61,6 +63,8 @@ def _importance(estimator, n: int) -> np.ndarray:
     """One model's reliance on each column, summing to 1. Trees: how much each column's splits reduce
     error. Straight-line models: size of each column's weight (columns are scaled first, so comparable)."""
     last = estimator.steps[-1][1] if hasattr(estimator, "steps") else estimator
+    if n == 1:                           # one column carries all of it (e.g. Model 2's calibrated usual spend)
+        return np.ones(1)
     if hasattr(last, "booster_"):        # LightGBM: by gain, not by its default (how often a column is split on)
         raw = np.asarray(last.booster_.feature_importance(importance_type="gain"), dtype=float)
     elif hasattr(last, "feature_importances_"):

@@ -18,13 +18,14 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from evaluation.agent import evaluate_model, load_evaluation_spec  # noqa: E402
-from modeling import model1_baseline, model2_baseline, model3_uplift  # noqa: E402
+from modeling import model1_baseline, model2_value, model3_uplift  # noqa: E402
 from modeling.agent import load_modeling_spec, run_model  # noqa: E402
 from modeling.decision_log import DECIDED_BY  # noqa: E402
 
 EXPECTED = {1: {"folds": 18, "rows": 5785, "locked": [21, 22, 23, 25, 24]}, 2: {"folds": 11, "rows": 167, "locked": [23, 25, 24]},
             3: {"folds": 15, "rows": 24397, "locked": [22, 23, 25, 24]}}
-OWNER_FILES = ["src/modeling/model1_baseline.py", "src/modeling/model2_baseline.py", "src/modeling/model1_evaluation.py"]
+OWNER_FILES = ["src/modeling/model1_baseline.py", "src/modeling/model2_baseline.py", "src/modeling/model2_value.py",
+               "src/modeling/model1_evaluation.py"]
 results = []
 
 
@@ -39,16 +40,15 @@ def predictions_hash(model_id: int, out: Path) -> str:
 
 def owner_scores(model_id: int, processed: Path, train_campaigns: list, test_campaign: int) -> np.ndarray:
     """The owner's own functions, called directly -- what the agent's default candidate must equal."""
-    module = {1: model1_baseline, 2: model2_baseline, 3: model3_uplift}[model_id]
+    module = {1: model1_baseline, 2: model2_value, 3: model3_uplift}[model_id]
     table = module.load_table(processed)
     train, test = table[table["campaign"].isin(train_campaigns)], table[table["campaign"] == test_campaign]
     if model_id == 3:
         model_t, model_c, _, _ = module.train_t_learner(train)
         return model_t.predict_proba(test[module.FEATURES])[:, 1] - model_c.predict_proba(test[module.FEATURES])[:, 1]
-    model = module.train_models(train)["Random forest"]
-    if model_id == 1:
-        return model.predict_proba(test[module.FEATURES])[:, 1]
-    return model.predict(test[module.FEATURES])
+    if model_id == 2:                      # Yuxin's current model: calibrated usual spend
+        return module.CalibratedUsualSpend().fit(train).predict(test)
+    return module.train_models(train)["Random forest"].predict_proba(test[module.FEATURES])[:, 1]
 
 
 def main() -> None:
@@ -90,7 +90,7 @@ def main() -> None:
 
         fold = manifest["folds"][-1]
         mine = default[default["campaign"] == fold["test_campaign"]].sort_values("household_key")
-        theirs_table = {1: model1_baseline, 2: model2_baseline, 3: model3_uplift}[model_id].load_table(args.processed)
+        theirs_table = {1: model1_baseline, 2: model2_value, 3: model3_uplift}[model_id].load_table(args.processed)
         order = theirs_table[theirs_table["campaign"] == fold["test_campaign"]]["household_key"].to_numpy()
         theirs = pd.Series(owner_scores(model_id, args.processed, fold["train_campaigns"], fold["test_campaign"]),
                            index=order).sort_index()
@@ -114,6 +114,10 @@ def main() -> None:
     changed = subprocess.run(["git", "diff", "--name-only", "HEAD", "--", *OWNER_FILES],
                              cwd=ROOT, capture_output=True, text=True).stdout.split()
     check(not changed, f"owners' Model 1/2 scripts unchanged {changed or ''}".strip())
+    flagged = [r for m in (1, 2, 3) for r in json.loads((out / f"model{m}" / "decisions.json").read_text())
+               if r["check_id"] == "MOD-09"]
+    check(not flagged, "every committed model script is known to the agent (no newer model it would miss)"
+          + (f": {[r['finding'] for r in flagged]}" if flagged else ""))
     diff = subprocess.run(["git", "diff", "--numstat", "HEAD", "--", "src/modeling/model3_uplift.py"],
                           cwd=ROOT, capture_output=True, text=True).stdout.split()
     check(not diff or (int(diff[0]) <= 15 and int(diff[1]) <= 15),
