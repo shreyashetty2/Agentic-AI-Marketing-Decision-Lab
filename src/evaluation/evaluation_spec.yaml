@@ -19,6 +19,8 @@ models:
     baseline_name: '"Redeemed before" rule'
     also_report: [within_campaign_auc]
     calibration: {kind: forecast_range, min_coverage: 0.80}   # honest per-campaign ranges, not recalibration
+    # Model 1 only: recalibrating on past errors was tested and made forecasts worse (model1_calibration work)
+    calibration_hint: "widen the forecast ranges; do not recalibrate on past errors (that made Model 1 worse when tested)"
     approve_requires_human: false
     # Raised as a question every run until the team signs it off:
     measure_note: >-

@@ -35,9 +35,11 @@ def test_iteration_cap_goes_to_a_person_even_if_it_would_pass():
     assert (verdict, by) == ("human_needed", "human_needed") and "EVA-04" in reasons[0]
 
 
-def test_good_ranking_bad_calibration_sends_back_to_modeling_with_ranges_hint():
+def test_good_ranking_bad_calibration_sends_back_with_only_its_own_models_hint():
     verdict, _, reasons = route(facts(calibration_ok=False), CFG)
-    assert verdict == "send_back_modeling" and "do not recalibrate" in reasons[0]
+    assert verdict == "send_back_modeling" and "recalibrate" not in reasons[0]
+    _, _, reasons = route(facts(calibration_ok=False), {**CFG, "calibration_hint": "widen the ranges"})
+    assert reasons[0].endswith("; widen the ranges")
 
 
 def test_failing_model_with_a_better_alternative_sends_back_to_modeling():
@@ -55,3 +57,4 @@ def test_everything_within_noise_sends_back_to_features():
 
 def test_uncovered_case_goes_to_a_person():
     assert route(facts(gap_status="fail"), CFG)[:2] == ("human_needed", "human_needed")
+

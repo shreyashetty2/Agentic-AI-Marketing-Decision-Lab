@@ -209,7 +209,8 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
 
     verdict, decided_by, reasons = route(facts, {"max_iterations": spec["max_iterations"],
                                                  "stability_min_share": spec["stability_min_share"],
-                                                 "approve_requires_human": ecfg["approve_requires_human"]})
+                                                 "approve_requires_human": ecfg["approve_requires_human"],
+                                                 "calibration_hint": ecfg.get("calibration_hint")})
     log.record("EVA-VERDICT", f"verdict for the owner's model: {verdict}", verdict, decided_by, " ".join(reasons),
                evidence={k: v for k, v in facts.items()})
 
