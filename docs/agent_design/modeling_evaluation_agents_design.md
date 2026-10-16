@@ -23,10 +23,12 @@ The README's plan is one shared **Modeling Agent** (pipeline step 3) and one sha
 **They orchestrate; they do not re-model.** The models belong to their owners:
 
 - Model 1: Yuxin, evaluated by John
-- Model 2: Yuxin
+- Model 2: Yuxin. Her current model is `model2_value.py` (usual spend, calibrated); `model2_baseline.py` stays in as a comparison.
 - Model 3: Shreya
 
-Each model's default option *is* the owner's code, called unchanged through `src/modeling/owners.py`. If the agents prefer an alternative, or the verdict is negative, that is written up as a question for the owner (`decided_by: human_needed`). Nothing is applied automatically.
+Each model's default option *is* the owner's current code, called unchanged through `src/modeling/owners.py`.
+
+**Staying on the owners' latest model.** The agent calls the owners' code live, so an edit to an owner's script is picked up on the next run. A *new* script is different: the agent would keep using the one it knows. So the instruction file lists every model script it knows (`scripts`), and every run compares that list with the scripts committed to the repo. A new one is flagged for a person (MOD-09): it may be the owner's newer model. If the agents prefer an alternative, or the verdict is negative, that is written up as a question for the owner (`decided_by: human_needed`). Nothing is applied automatically.
 
 **Why they exist:** to make model development better, not to save work. Every genuine question (an inconclusive result, a disagreement with an owner, a correction that did not fully work) is flagged to a person instead of being settled silently.
 
@@ -169,7 +171,7 @@ Each proposal is saved with its status (`ready`, `rejected` with the reason, or 
 1. **Mailed and unmailed households not comparable (Model 3):** too little overlap, or still too different after weighting. A person decides.
 2. **Round 3 or later:** a person decides. Round 1 is the owner's model; rounds 2–3 are proposals. After that the open campaigns have been reused enough.
 3. **Beats its baseline and calibrated:** approve. For Model 3, approval goes to a person, because no rule can check for hidden confounders.
-4. **Beats its baseline but not calibrated:** send back to modelling, with the hint "widen forecast ranges; do not recalibrate." Recalibrating on past errors made things worse when we tested it.
+4. **Beats its baseline but not calibrated:** send back to modelling. For Model 1 the hint is "widen forecast ranges; do not recalibrate", because recalibrating on past errors made Model 1 worse when we tested it. Other models get no such hint: that lesson was learned on Model 1 only.
 5. **Doesn't beat its baseline, and an alternative beats the owner's model, or the agent's choice keeps flipping between folds:** send back to modelling.
 6. **Doesn't beat its baseline, and every option is within noise of the others:** send back to features. The signal is not in the columns.
 7. **Anything else:** a person decides.
@@ -198,6 +200,14 @@ Each proposal is saved with its status (`ready`, `rejected` with the reason, or 
 - On the open campaigns, mailed and unmailed households still differ after weighting (gap 0.28 on campaign-product spend; 0.25 is the limit). Every uplift number is approximate.
 - Taken at face value: the owner's model vs. random targeting +0.007 (range −0.020 to +0.030), can't tell.
 - Columns only: +0.012, reliably better. Settings only (shallower trees): +0.017, reliably better.
+
+### Model 2 update: Yuxin's calibrated model (later on 15 Oct)
+
+Yuxin's new current Model 2, `model2_value.py`, is a straight line on usual spend fit through the middle of the answers. The agent now uses it as Model 2's current model (the numbers above judged her earlier random forest).
+
+- On the agent's test it **beats usual spend by $0.90** of average error (range $0.32 to $1.59): her own finding holds under the stricter test, where training campaigns must have ended.
+- Her earlier forest is reliably worse than it ($1.44); her linear regression ties it.
+- **Verdict: send back to modelling**, because the predicted total is 20% below the actual total. Her own report notes the same: every model under-predicts the later, higher-spending campaigns.
 
 ### Round 2: the brain's proposals
 
