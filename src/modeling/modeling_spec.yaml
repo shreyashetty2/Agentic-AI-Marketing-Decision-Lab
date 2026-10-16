@@ -1,0 +1,186 @@
+# Modeling Agent: instruction document.
+# The code reads this file; it is the single source of truth for what the agent may try for each model
+# and how it chooses. Why each choice was made: docs/agent_design/modeling_evaluation_agents_design.md
+#
+# Orchestration, not re-modelling: every model's DEFAULT candidate is its owner's own code, called
+# unchanged (src/modeling/owners.py). The agent only adds alternatives, and if it prefers one, that is a
+# recommendation to the owner (decided_by: human_needed) -- never an override.
+
+input:
+  dir: data/processed
+  feature_spec: src/features/feature_2a_spec.yaml   # column roles + blank reasons
+
+output:
+  dir: data/processed/modeling_agent                # one folder per model; nothing else is written
+
+defaults:
+  first_test_day: 412          # same forward-chaining start as model1_evaluation.py (campaign 8)
+  allowed_roles: [profile, context]
+  # Context columns that are still unsafe as inputs: positions on the timeline (future campaigns always
+  # sit later than anything trained on) and a count that includes campaigns starting after the cutoff.
+  never_inputs: [household_key, campaign, start_day, end_day, chrono_rank, first_txn_day,
+                 history_days_before_start, n_overlapping_campaigns]
+  # A blank may become 0 only if every reason 2A gives for that column's blanks means "none".
+  fill_zero_when: [no_history, no_spend_26w, never_received]
+  # Columns the owners' own load_table adds (not in 2A): allowed as inputs.
+  derived_inputs: [is_type_a, is_type_b, usual_spend]
+  inner_last_n_campaigns: 4    # choosing uses only the last 4 campaigns inside each training window
+  min_inner_folds: 2           # fewer usable inner campaigns than this -> keep the owner's default
+
+# Locked campaigns: each model's LAST few test campaigns are predicted but written to a separate file
+# (locked_predictions.parquet) that the Evaluation Agent reads only on --unlock. Every round of
+# proposals is judged on the open campaigns; the locked ones check the final choice once, so ideas
+# tried round after round cannot pass by luck on campaigns they were tuned against.
+
+# Every candidate's `changes` (columns / learner / settings, compared with the owner's default) is
+# worked out by the code from features, family and params, so the reports can say where a gain came
+# from. Owner candidates therefore record the family and settings their owner's script uses (a test
+# checks they match the script).
+
+# The brain (src/modeling/brain.py): reads the latest results and proposes what to try next. It never
+# sees the locked campaigns, never changes anything itself: a person approves each proposal.
+brain:
+  model: claude-opus-5-5
+  max_proposals: 5             # per model per round
+  max_tokens: 6000
+  calls_per_run: 1             # one question per model per run; a bug cannot loop and run up a bill
+  # Settings a proposal may change, with allowed ranges; anything else is rejected before a person sees it.
+  allowed_params:
+    forest:   {n_estimators: [50, 1000], max_depth: [2, 20], min_samples_leaf: [1, 500], max_features: [0.1, 1.0]}
+    lightgbm: {n_estimators: [50, 1000], learning_rate: [0.005, 0.3], num_leaves: [4, 128],
+               min_child_samples: [5, 500], reg_lambda: [0.0, 100.0], subsample: [0.3, 1.0],
+               colsample_bytree: [0.3, 1.0]}
+    logistic: {C: [0.0001, 100.0]}
+    linear:   {}
+
+lightgbm_params: &lgbm {n_estimators: 300, learning_rate: 0.03, num_leaves: 15, min_child_samples: 40,
+                        subsample: 0.8, subsample_freq: 1, colsample_bytree: 0.8, reg_lambda: 1.0,
+                        random_state: 42, n_jobs: 2, verbose: -1}
+forest_params: &forest {n_estimators: 300, max_depth: 6, min_samples_leaf: 20, random_state: 42}   # the owners' forest settings
+forest_deeper: &forest_deeper {n_estimators: 300, max_depth: 10, min_samples_leaf: 10, random_state: 42}
+forest_shallower: &forest_shallower {n_estimators: 300, max_depth: 4, min_samples_leaf: 40, random_state: 42}
+
+models:
+  1:
+    name: "Campaign Response Probability"
+    owner: "Yuxin (model1_baseline.py), evaluated by John (model1_evaluation.py)"
+    table: model1_table.parquet
+    task: classify
+    label: redeemed_flag
+    label_desc: "1 if the mailed household redeemed at least one of this campaign's coupons during the campaign."
+    expected: {rows: 7208, positives: 889}
+    baseline: {column: past_redemption_rate, sign: 1, name: '"Redeemed before" rule'}
+    feature_sets:
+      # John's EXTENDED_FEATURES: the owner's 11 + already-built 2A columns, each with a reason in his script
+      extended: [spend_per_week_26w, trips_per_week_26w, coupon_lines_per_week_26w, share_spend_on_discount_26w,
+                 past_redemption_rate, campaign_product_spend_per_week_26w, campaign_product_share_26w,
+                 history_weeks_before_cutoff, duration_days, is_type_a, is_type_b,
+                 spend_per_week_8w, trips_per_week_8w, days_since_last_trip, avg_basket_value_26w,
+                 n_departments_26w, past_redemptions, past_campaigns_received, past_campaigns_redeemed,
+                 other_campaigns_live_at_cutoff, has_demographics]
+    candidates:
+      owner_forest:      {source: owner, owner_learner: forest, family: forest, params: *forest, complexity: 2}
+      owner_logistic:    {source: owner, owner_learner: logistic, family: logistic, params: {max_iter: 1000}, complexity: 1}
+      extended_forest:   {source: agent, family: forest, features: extended, params: *forest, complexity: 2}
+      owner_cols_lightgbm: {source: agent, family: lightgbm, features: owner, params: *lgbm, complexity: 3}
+      extended_lightgbm: {source: agent, family: lightgbm, features: extended, params: *lgbm, complexity: 3}
+      deeper_forest:     {source: agent, family: forest, features: owner, params: *forest_deeper, complexity: 2}
+      shallower_forest:  {source: agent, family: forest, features: owner, params: *forest_shallower, complexity: 2}
+    default: owner_forest
+    forward_chain: {min_train_rows: 500, min_train_positives: 50}
+    locked_test_campaigns: 5          # campaigns 21-25, the same five Pranav's Model 1 experiments locked
+    selection:
+      metric: within_campaign_auc     # smoother than capture, which moves in whole redeemers
+      min_gain: 0.005                 # a challenger must beat the default by this much
+      inner: {min_train_rows: 300, min_train_positives: 30, min_test_positives: 20}   # test minimums: inner test campaigns combined
+    reproduce:
+      split_70_30:      # model1_baseline.py's own report
+        rows: {train: 4688, test: 2520}
+        owner_forest:   {pooled_capture: 0.611, roc_auc: 0.820, pr_auc: 0.508}
+        owner_logistic: {pooled_capture: 0.582, roc_auc: 0.805, pr_auc: 0.460}
+        rule:           {pooled_capture: 0.523, roc_auc: 0.737, pr_auc: 0.334}
+      forward_chain:    # model1_evaluation.py's report (random forest, baseline 11)
+        folds: 18
+        test_rows: 5785
+        owner_forest: {within_capture: 0.570, pooled_capture: 0.586, pooled_auc: 0.808, within_auc: 0.801}
+        rule: {within_capture: 0.482}
+        gap_interval: [0.055, 0.124]  # John's bootstrap_capture, 300 reps, seed 1
+      decimals: 3
+
+  2:
+    name: "Expected Financial Value"
+    owner: "Yuxin (model2_baseline.py)"
+    table: model2_table.parquet
+    task: regress
+    label: campaign_product_spend_during
+    label_desc: "Dollars the mailed household spent on this campaign's products during the campaign."
+    expected: {rows: 254}
+    baseline: {column: usual_spend, sign: 1, name: "Usual spend"}
+    feature_sets:
+      usual_only: [usual_spend]       # the owner's own baseline formula, as the only input
+    candidates:
+      owner_forest:       {source: owner, owner_learner: forest, family: forest, params: *forest, complexity: 2}
+      owner_linear:       {source: owner, owner_learner: linear, family: linear, params: {}, complexity: 1}
+      usual_only_linear:  {source: agent, family: linear, features: usual_only, params: {}, complexity: 1}
+      deeper_forest:      {source: agent, family: forest, features: owner, params: *forest_deeper, complexity: 2}
+      shallower_forest:   {source: agent, family: forest, features: owner, params: *forest_shallower, complexity: 2}
+    default: owner_forest
+    forward_chain: {min_train_rows: 80}
+    locked_test_campaigns: 3
+    selection:
+      metric: mae                     # dollars; lower is better
+      min_gain: 0.50
+      inner: {min_train_rows: 60, min_test_rows: 20}
+    reproduce:
+      split_70_30:      # model2_baseline.py, recomputed 2026-10-14
+        rows: {train: 126, test: 128}
+        owner_forest: {mae: 13.1776, median_ae: 7.8025}
+        owner_linear: {mae: 11.7121, median_ae: 6.9342}
+        usual_spend:  {mae: 11.6839, median_ae: 7.8564}
+        train_mean:   {mae: 14.1607}
+      decimals: 4
+
+  3:
+    name: "True Incremental Uplift"
+    owner: "Shreya (model3_uplift.py)"
+    table: model3_table.parquet
+    task: uplift
+    label: bought_campaign_product_excl_display_flyer
+    label_desc: "1 if the household bought this campaign's products during it while they were not on display or in the flyer. The model predicts the DIFFERENCE mailing makes (uplift)."
+    treatment: mailed_flag            # splits rows between the two models; never an input
+    expected: {rows: 43396, treated: 3229, control: 40167}
+    baseline: {column: spend_per_week_26w, sign: -1, name: "Lowest spenders first"}  # Model 3's own finding
+    propensity:   # corrects for the retailer mailing heavier spenders; checked, never trusted blindly
+      features: extended           # feature set used to predict who got mailed (never the outcome)
+      overlap: [0.02, 0.98]
+      clip: [0.01, 0.99]
+      folds: 5
+      balance_columns: [spend_per_week_26w, campaign_product_spend_per_week_26w, coupon_lines_per_week_26w,
+                        past_redemption_rate]
+      balanced_below: 0.10         # above this: uplift numbers are approximate -> question for a person
+      unusable_above: 0.25         # above this: weighted comparison still confounded -> a person decides
+    feature_sets:
+      extended: [spend_per_week_8w, spend_per_week_26w, avg_basket_value_26w, trips_per_week_26w,
+                 coupon_lines_per_week_26w, share_spend_on_discount_26w, past_redemption_rate,
+                 campaign_product_spend_per_week_26w, campaign_product_share_26w,
+                 history_weeks_before_cutoff, duration_days,
+                 trips_per_week_8w, n_departments_26w, past_campaigns_received, past_campaigns_redeemed]
+    candidates:   # features: owner = the owner's own FEATURES constant, read from their script
+      owner_t_forest:    {source: owner, owner_learner: forest, family: forest, params: *forest, complexity: 2}
+      owner_t_logistic:  {source: agent, family: logistic, features: owner, params: {max_iter: 2000}, complexity: 1}
+      extended_t_forest: {source: agent, family: forest, features: extended, params: *forest, complexity: 2}
+      shallower_t_forest: {source: agent, family: forest, features: owner, params: *forest_shallower, complexity: 2}
+    default: owner_t_forest
+    forward_chain: {min_train_treated: 300}
+    locked_test_campaigns: 4
+    selection:
+      metric: ipw_stratified_qini     # raw Qini mostly measures who got mailed (targeting is not random)
+      min_gain: 0.005
+      inner: {min_train_treated: 150, min_test_treated: 100}
+    reproduce:
+      split_70_30:      # model3_uplift.py after the pandas-3 fix, recomputed 2026-10-14
+        rows: {train: 29743, test: 13653}
+        pooled_qini: -199.82776113610083
+        quintile_uplift: [0.3638, 0.3533, 0.4953, 0.4689, 0.3914]
+        quintile_treated: [824, 228, 73, 164, 98]
+      decimals: 4

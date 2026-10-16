@@ -72,7 +72,7 @@ def spend_tier_segmentation(table: pd.DataFrame) -> pd.DataFrame:
     households in a single 'High' bucket (treated households are overwhelmingly heavy spenders),
     making the other buckets meaningless; treated-group cutoffs guarantee ~even treated counts."""
     treated_spend = table.loc[table[TREATMENT] == 1, "spend_per_week_26w"]
-    cuts = treated_spend.quantile([0, 1 / 3, 2 / 3, 1.0]).values
+    cuts = treated_spend.quantile([0, 1 / 3, 2 / 3, 1.0]).to_numpy(copy=True)
     cuts[0], cuts[-1] = -np.inf, np.inf
     tiers = pd.cut(table["spend_per_week_26w"], bins=cuts, labels=["Low", "Medium", "High"])
 
@@ -150,7 +150,7 @@ def evaluate(model_t, model_c, test: pd.DataFrame) -> dict:
     rho, p = spearmanr(quintiles["quintile"], quintiles["actual_uplift"])
 
     # Does the trained model's predicted uplift reproduce the heavy-spender pattern on held-out data?
-    test_spend_cuts = test.loc[test[TREATMENT] == 1, "spend_per_week_26w"].quantile([0, 1/3, 2/3, 1.0]).values
+    test_spend_cuts = test.loc[test[TREATMENT] == 1, "spend_per_week_26w"].quantile([0, 1/3, 2/3, 1.0]).to_numpy(copy=True)
     test_spend_cuts[0], test_spend_cuts[-1] = -np.inf, np.inf
     test["spend_tier"] = pd.cut(test["spend_per_week_26w"], bins=test_spend_cuts, labels=["Low", "Medium", "High"])
     predicted_by_tier = test.groupby("spend_tier", observed=True)["predicted_uplift"].mean()
@@ -159,11 +159,8 @@ def evaluate(model_t, model_c, test: pd.DataFrame) -> dict:
             "predicted_uplift_by_tier": predicted_by_tier}
 
 
-def qini_curve(test: pd.DataFrame, out_path: Path) -> float:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
+def qini_points(test: pd.DataFrame):
+    """The Qini curve's numbers only (no plot, no files): (frac, qini, random_line, coefficient)."""
     t = test.sort_values("predicted_uplift", ascending=False).reset_index(drop=True)
     n_t, n_c = (t[TREATMENT] == 1).sum(), (t[TREATMENT] == 0).sum()
     cum_t = (t[TREATMENT] * t[LABEL]).cumsum()
@@ -171,7 +168,15 @@ def qini_curve(test: pd.DataFrame, out_path: Path) -> float:
     frac = (np.arange(len(t)) + 1) / len(t)
     qini = cum_t - cum_c * (n_t / n_c)
     random_line = frac * qini.iloc[-1]
-    coefficient = np.trapezoid(qini - random_line, frac)
+    return frac, qini, random_line, np.trapezoid(qini - random_line, frac)
+
+
+def qini_curve(test: pd.DataFrame, out_path: Path) -> float:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    frac, qini, random_line, coefficient = qini_points(test)
 
     plt.figure(figsize=(7, 5))
     plt.plot(frac * 100, qini, label="Model (ranked by predicted uplift)", color="#2563eb", linewidth=2)
