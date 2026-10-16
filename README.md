@@ -244,8 +244,8 @@ Model 3 plugs its own method (two models: mailed and not mailed) and its own eva
 ├── src/
 │   ├── preprocessing/                # Step 1 — Data Agent: ingest.py, build_spine.py
 │   ├── features/                     # Steps 2A/2B — Feature Agent: shared table + per-model tables
-│   ├── modeling/                     # Step 3 — Modeling Agent (model{1,2,3}_baseline.py)
-│   ├── evaluation/                   # Step 4 — Evaluation Agent (not yet built)
+│   ├── modeling/                     # Step 3 — owners' models (model{1,2,3}_*.py) + Modeling Agent (agent.py, brain.py)
+│   ├── evaluation/                   # Step 4 — Evaluation Agent (agent.py, metrics.py, rules.py)
 │   ├── scoring/                      # Step 5 — Scoring (not yet built)
 │   ├── api/                          # Model-serving REST API (not yet built)
 │   ├── app/                          # Step 6 — Decision Lab UI (not yet built)
@@ -307,9 +307,15 @@ python src/modeling/model3_redemption_analysis.py  # Model 3 redemption-segmenta
 python src/modeling/model3_product_lookup.py                 # Model 3: every eligible product, all campaigns, ranked + saved to CSV
 python src/modeling/model3_product_lookup.py --campaign 29   # Model 3: product-level drill-down for one campaign (name, uplift, redemption use)
 python src/modeling/model1_evaluation.py           # Model 1: validate the baseline, feature importance, model x feature comparison (~4 min)
+python src/modeling/agent.py --model all --mode both  # Step 3, Modeling Agent: reproduce owners' numbers, forward-chain, choose (~2 min)
+python src/evaluation/agent.py --model all          # Step 4, Evaluation Agent: judge each model, verdict + questions for a person
+python src/modeling/brain.py --model 1              # Brain: propose what to try next (needs ANTHROPIC_API_KEY; --manual without)
+python src/modeling/agent.py --model 1 --mode forward --proposals --iteration 2   # test the proposals a person approved
+python src/evaluation/agent.py --model 1 --unlock   # final check, once, on the held-back campaigns
 pytest tests                             # unit tests
 python tests/features/acceptance_2a.py   # real-data acceptance checks (slow, ~1 min)
 python tests/features/acceptance_2b.py   # real-data acceptance checks
+python tests/modeling/acceptance_agents.py   # Modeling + Evaluation Agent real-data checks (~4 min)
 ```
 
 Step 2A writes `data/processed/features_household_campaign.parquet` (75,000 rows x 47 columns) and `feature_2a_report.md`. What every column means, and which ones a model may use, is in `src/features/feature_2a_spec.yaml`.
