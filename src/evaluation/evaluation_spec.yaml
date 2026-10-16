@@ -1,0 +1,44 @@
+# Evaluation Agent: instruction document.
+# The code reads this file; it is the single source of truth for how each model is judged and what
+# each verdict requires. The Modeling Agent never reads it, so the bar cannot be tuned from that side.
+# Why each choice was made: docs/agent_design/modeling_evaluation_agents_design.md
+
+input:
+  dir: data/processed/modeling_agent       # the Modeling Agent's hand-off: predictions.parquet + manifest.json
+output:
+  dir: data/processed/evaluation_agent
+
+bootstrap: {reps: 300, seed: 7}           # resamples whole households (one household appears in many campaigns)
+max_iterations: 3                          # round 1 = the owner's model; rounds 2-3 = proposals. At round 3 a person
+                                           # decides: the open campaigns have been reused enough (the locked ones stay clean)
+stability_min_share: 0.60                  # below this, the agent's per-fold choice flips too often to trust
+
+models:
+  1:
+    primary: within_campaign_capture       # redeemers caught when mailing each campaign's top 20%
+    baseline_name: '"Redeemed before" rule'
+    also_report: [within_campaign_auc]
+    calibration: {kind: forecast_range, min_coverage: 0.80}   # honest per-campaign ranges, not recalibration
+    approve_requires_human: false
+    # Raised as a question every run until the team signs it off:
+    measure_note: >-
+      The Modeling Agent chooses between options by within-campaign ranking score (AUC), not the team's
+      top-20% capture, because capture moves in whole redeemers and was too noisy to choose by. Does the
+      team accept choosing by AUC while judging by capture?
+  2:
+    primary: mae                           # average dollar error; lower is better
+    baseline_name: "Usual spend"
+    also_report: []
+    calibration: {kind: total_ratio, max_abs_rel_error: 0.15}
+    approve_requires_human: false
+  3:
+    primary: ipw_stratified_qini           # extra buyers per mailed household vs. random, within campaign, weighted
+    baseline_name: "Random targeting"      # its weighted Qini is 0 by construction
+    rule_name: "Lowest spenders first"     # the Modeling Agent's baseline_score column, reported alongside
+    also_report: [raw_stratified_qini]
+    calibration: {kind: att, max_abs_error: 0.05}
+    min_overlap_share: 0.70
+    approve_requires_human: true           # no rule can check "no hidden confounders"; a person signs off
+    measure_note: >-
+      Judged on propensity-weighted, within-campaign Qini; Shreya's own evaluation uses the unweighted,
+      pooled Qini, which mostly measures who got mailed. Does the owner accept the weighted measure?
