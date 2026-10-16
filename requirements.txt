@@ -26,4 +26,4 @@ pytest
 # fastapi
 # uvicorn
 # streamlit
-# <LLM SDK, e.g. anthropic or openai>
+anthropic          # the brain (src/modeling/brain.py); its key stays in the local .env
