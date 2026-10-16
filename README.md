@@ -104,6 +104,8 @@ For a given household and campaign, what is the expected net revenue the househo
   - **TypeB/TypeC only:** 254 redeemed pairs with known coupon exposure — a clean, well-defined campaign-related-product target.
   - **TypeA:** the exact 16 coupons each household received are unobserved, so household-level product exposure is uncertain. Open methodological question: investigate alternative ways to operationalize the Model 2 target for TypeA.
 
+**Finding: usual spend is hard to beat; a calibrated version of it beats it reliably.** On 254 rows, none of the larger models tried — more features, log target, tuned random forests, LightGBM, campaign-level features — beat the "usual spend" benchmark reliably (household's weekly spend on the campaign's products in the 26 weeks before cutoff × campaign weeks). The primary Model 2 (`src/modeling/model2_value.py`) is therefore a one-feature median regression that calibrates it: **spend ≈ 0.79 × usual spend + $6**. Evaluated walk-forward (each campaign predicted only from earlier campaigns, 194 rows), it cuts mean absolute error from $10.40 to $9.72, better than usual spend in 100% of 2,000 campaign-level bootstrap resamples. The +$6 reflects that redeeming means buying at least something even for households that rarely buy those products; the 0.79 reflects heavy buyers not scaling up proportionally. All models still under-predict later, higher-spending campaigns. Every alternative and why it didn't help: `docs/agent_design/modeling_agent_model2_design.md`.
+
 ### Prediction Question 3: True Incremental Uplift
 For a given household and campaign, how much does receiving the campaign actually increase the household's likelihood of purchasing the targeted products, compared to their baseline behavior if we sent them nothing?
 - Unit: one household and one campaign.
@@ -298,6 +300,7 @@ python src/features/build_2a.py          # Step 2A, Feature Agent: shared featur
 python src/features/build_2b.py          # Step 2B, Feature Agent: one table per model + run report
 python src/modeling/model1_baseline.py   # Step 3, Modeling Agent: Model 1 (response) classifier baseline
 python src/modeling/model2_baseline.py   # Step 3, Modeling Agent: Model 2 (expected value) regressor baseline
+python src/modeling/model2_value.py      # Step 3, Modeling Agent: Model 2 (expected value) calibrated usual-spend model, primary build
 python src/modeling/model3_baseline.py   # Step 3, Modeling Agent: Model 3 (uplift) T-learner, quick sanity check
 python src/modeling/model3_uplift.py     # Step 3, Modeling Agent: Model 3 (uplift) full model, primary build
 python src/modeling/model3_redemption_analysis.py  # Model 3 redemption-segmentation analysis
