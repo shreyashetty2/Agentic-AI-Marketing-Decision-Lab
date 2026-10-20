@@ -43,8 +43,12 @@ elif step == "features":
         pd.DataFrame({"campaign": [c["campaign"] for c in CALENDAR for _ in range(n + 1)]}).to_parquet(p / f"model{n}_table.parquet")
 elif step == "modeling":
     d = out / f"model{model}"; d.mkdir(parents=True, exist_ok=True)
-    (d / "manifest.json").write_text(json.dumps({"run_id": str(__import__("time").time()), "default": "own", "candidates": {"own": {}, "alt": {}},
-                                                 "folds": [1, 2], "final": {"recommended": "own"}}))
+    forest = {"family": "forest", "params": {"n_estimators": 300, "max_depth": 6}, "features": ["a", "b"]}
+    (d / "manifest.json").write_text(json.dumps({
+        "run_id": str(__import__("time").time()), "default": "own",
+        "candidates": {"own": forest, "alt": {**forest, "family": "lightgbm"}}, "folds": [1, 2],
+        "final": {"recommended": "own", "task": "classify", "importances": {"a": 0.7, "b": 0.3},
+                  "trained_on_campaigns": [1, 2]}}))
     (d / "predictions.parquet").write_bytes(b"preds")
     (d / "final_model.joblib").write_bytes(b"model trained at " + str(__import__("time").time()).encode())
 elif step == "evaluation":
@@ -52,9 +56,13 @@ elif step == "evaluation":
     qs = [{"key": k, "who": "team", "question": f"eval question {k}"} for k in sc.get("eval_questions", [])]
     run_id = json.loads((out.parent / "modeling_agent" / f"model{model}/manifest.json").read_text())["run_id"]
     verdict = sc.get("verdict", "approve")
+    gap = {"gap": 0.08, "low": 0.05, "high": 0.12, "status": "pass"}
     (d / "verdict.json").write_text(json.dumps({"verdict": verdict, "decided_by": "rule", "reasons": [f"EVA: {verdict}"],
-                                                "questions": qs, "scores": {"own": 0.5}, "primary_metric": "m",
-                                                "owner_model": "own", "run_id": run_id,
+                                                "questions": qs, "scores": {"own": 0.56, "alt": 0.55, "baseline_score": 0.48},
+                                                "primary_metric": "within_campaign_capture", "owner_model": "own",
+                                                "vs_baseline": gap, "alternatives": {"alt": {**gap, "status": "inconclusive"}},
+                                                "calibration": {"ok": True, "summary": "inside the range for 92% of 13 campaigns"},
+                                                "run_id": run_id,
                                                 "newest_campaign": {"campaign": 5, "worse_than_usual": sc.get("worse", False)}}))
 '''
 
@@ -433,6 +441,9 @@ def test_a_passing_retrain_replaces_the_approved_model(tmp_path):
     pd.DataFrame({"campaign": range(9)}).to_parquet(root / "data/processed/model1_table.parquet")
     u = update_of(run([1], spec, root))
     assert u["action"] == "replaced" and u["previous"]["run_id"] == first["run_id"]
+    assert u["approved"]["trained_on"] == {"campaigns": 2, "rows": None}
+    assert u["approved"]["leans_on"][0] == {"column": "a", "share": 0.7}
+    assert u["approved"]["model"] == "random forest (300 trees, 6 levels deep) on 2 columns"
     assert approved(root)["run_id"] != first["run_id"]
 
 
@@ -524,3 +535,19 @@ def test_an_answered_agent_question_is_reported_with_its_rule(tmp_path):
     assert s["questions"]["new"] == []
     assert s["questions"]["answered"][0]["rule"] == "The team accepts choosing by AUC."
     assert "Rule: The team accepts choosing by AUC." in render(s)
+
+
+def test_the_summary_carries_the_measured_facts_in_plain_words(tmp_path):
+    root, spec = make_repo(tmp_path)
+    s = run([1], spec, root)
+    modeling = next(e for e in s["steps"] if e["step"] == "modeling:model1")
+    assert modeling["current_model"] == "random forest (300 trees, 6 levels deep) on 2 columns"
+    assert modeling["options"]["alt"].startswith("LightGBM (300 trees built one after another")
+    assert modeling["leans_on"] == [{"column": "a", "share": 0.7}, {"column": "b", "share": 0.3}]
+    assert modeling["trained_on"]["campaigns"] == 2
+    facts = next(e for e in s["steps"] if e["step"] == "evaluation:model1")["facts"]
+    assert facts["current_score"] == "56.0% (redeemers caught in the top 20% of each campaign's list)"
+    assert facts["simple_rule_score"].startswith("48.0%")
+    assert facts["vs_simple_rule"] == "+8.0 points (likely range +5.0 points to +12.0 points: a real difference)"
+    assert facts["alternatives"]["alt"].endswith("could be luck)")
+    assert facts["forecast_check"].endswith("-- passes")

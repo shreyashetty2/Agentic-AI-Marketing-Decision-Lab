@@ -20,6 +20,7 @@ Usage (from the repo root):
 Writes to output_dir (lead_spec.yaml): run_summary.json, run_summary.md, state.json
 """
 import argparse
+import ast
 import glob
 import hashlib
 import json
@@ -37,6 +38,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # lets `lead.*` import when run as a script
 from lead.asof import calendar, describe, folder_name  # noqa: E402
+from lead.describe import gap_words, model_words, score_words  # noqa: E402
 from lead.rules import RULES_PATH, answered, known_values, load_rules  # noqa: E402
 from lead.surprises import never_seen, unusual_moves  # noqa: E402
 
@@ -171,7 +173,17 @@ def read_modeling(root: Path, step: Step) -> dict:
     # The lead agent's cross-check: the Modeling Agent used exactly the table the step before it produced.
     rows = pq.read_metadata(root / step.folders["tables"] / f"model{step.model}_table.parquet").num_rows
     used = m.get("table_rows")
+    task = m["final"].get("task", "classify")
+    importances = m["final"].get("importances") or {}
+    importances = ast.literal_eval(importances) if isinstance(importances, str) else importances
+    trained_on = m["final"].get("trained_on_campaigns") or []
+    trained_on = ast.literal_eval(trained_on) if isinstance(trained_on, str) else trained_on
     return {"produced": [f"tested {len(m['candidates'])} options on {len(m['folds'])} test campaigns"],
+            "current_model": model_words(m["candidates"][default], task),
+            "options": {c: model_words(cand, task) for c, cand in m["candidates"].items()},
+            "trained_on": {"campaigns": len(trained_on), "rows": used},
+            "leans_on": [{"column": c, "share": round(float(v), 3)}
+                         for c, v in sorted(importances.items(), key=lambda kv: -kv[1])[:3]],
             "handled": "recommends keeping the current model" if rec == default
                        else f"recommends `{rec}` over the current model (the owner decides)",
             "questions": [], "run_id": m["run_id"],
@@ -180,14 +192,21 @@ def read_modeling(root: Path, step: Step) -> dict:
 
 def read_evaluation(root: Path, step: Step) -> dict:
     v = json.loads((root / step.folders["evals"] / f"model{step.model}/verdict.json").read_text())
-    return {"produced": [f"verdict: {v['verdict']} (decided by {v['decided_by']})"],
+    metric, owner = v["primary_metric"], v["owner_model"]
+    facts = {"metric": metric, "current_score": score_words(metric, v["scores"][owner]),
+             "vs_simple_rule": gap_words(metric, v["vs_baseline"]),
+             "alternatives": {c: gap_words(metric, r) for c, r in v["alternatives"].items()},
+             "forecast_check": v["calibration"]["summary"] + (" -- passes" if v["calibration"]["ok"] else " -- fails")}
+    if "baseline_score" in v["scores"]:
+        facts["simple_rule_score"] = score_words(metric, v["scores"]["baseline_score"])
+    return {"facts": facts,"produced": [f"verdict: {v['verdict']} (decided by {v['decided_by']})"],
             "handled": v["reasons"][0] if v["reasons"] else None,
             "questions": [{"key": q["key"], "who": q["who"], "text": q["question"]} for q in v["questions"]],
             "stopped": None, "verdict": v["verdict"], "scores": v["scores"], "primary_metric": v["primary_metric"],
             "owner_model": v["owner_model"], "newest_campaign": v.get("newest_campaign"), "run_id": v["run_id"]}
 
 
-def update_approved(root: Path, spec: dict, step: Step, report: dict, when: str) -> dict:
+def update_approved(root: Path, spec: dict, step: Step, report: dict, when: str, modeling: dict | None = None) -> dict:
     """Which model scoring should use. A retrained model replaces the approved one only if the Evaluation Agent
     approved it and its newest campaign was not worse than usual; otherwise the last approved model stays.
     A replay keeps its own record, so a simulation never replaces the real approved model."""
@@ -203,7 +222,9 @@ def update_approved(root: Path, spec: dict, step: Step, report: dict, when: str)
         return {"action": "unchanged", "reason": "this version is already the approved one", "approved": previous}
     record = {"run_id": report["run_id"], "as_of_day": step.day, "replay_folder": step.replay, "approved_at": when,
               "verdict": report["verdict"], "primary_metric": report["primary_metric"],
-              "score": report["scores"][report["owner_model"]], "owner_model": report["owner_model"]}
+              "score": report["scores"][report["owner_model"]], "owner_model": report["owner_model"],
+              "score_words": report["facts"]["current_score"], "model": (modeling or {}).get("current_model"),
+              "trained_on": (modeling or {}).get("trained_on"), "leans_on": (modeling or {}).get("leans_on")}
     folder.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(root / step.folders["models"] / f"model{step.model}/final_model.joblib",
                     folder / f"model{step.model}_final_model.joblib")
@@ -261,6 +282,8 @@ def run(models: list[int], spec: dict, root: Path = ROOT, plan_only: bool = Fals
                "since_last_replay": None, "steps": [],
                "questions": {"new": [], "still_open": [], "known": [], "answered": []}}
 
+    modeling_reports: dict[int, dict] = {}
+
     def stop(reason: str) -> bool:
         summary.update(status="stopped", stopped_because=reason)
         return False
@@ -279,8 +302,10 @@ def run(models: list[int], spec: dict, root: Path = ROOT, plan_only: bool = Fals
                 return stop(f"{step.agent}: {message}")
             state["steps"][step.key] = {"inputs": fingerprint(root, step.inputs), "finished_at": now}
         report = READERS[step.name](root, step)
+        if step.name == "modeling":
+            modeling_reports[step.model] = report
         if step.name == "evaluation" and not report["stopped"]:
-            report["model_update"] = update_approved(root, spec, step, report, now)
+            report["model_update"] = update_approved(root, spec, step, report, now, modeling_reports.get(step.model))
         if "as_of" in report:
             summary["since_last_replay"] = since_last(state.get("last_replay"), report["as_of"])
             state["last_replay"] = {"day": day, "finished": report["as_of"]["finished"]}
