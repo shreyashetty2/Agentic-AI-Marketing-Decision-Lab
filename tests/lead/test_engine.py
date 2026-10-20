@@ -683,6 +683,8 @@ def test_an_input_added_to_a_step_is_called_newly_watched_not_changed(tmp_path):
     state = {"steps": {"data": record(before, root, "t")}}
     after = Step("data", "Data Agent", None, [], ["raw.csv", "code.py"], ["raw.csv"])
     assert needs_run(after, root, state) == (True, "newly watched: its code (code.py)")
+    from lead.engine import input_words
+    assert input_words("data/processed/modeling_agent/model2/proposals.yaml") == "the improvement ideas approved for it"
 
 
 def test_approved_improvement_ideas_are_passed_to_the_modeling_agent(tmp_path):
@@ -705,4 +707,4 @@ def test_approving_an_idea_makes_the_model_run_again(tmp_path):
     (root / "data/processed/modeling_agent/model1/proposals.yaml").write_text("- {id: r2_p1, round: 2, approved: true}\n")
     s = run([1], spec, root)
     modeling = next(e for e in s["steps"] if e["step"] == "modeling:model1")
-    assert modeling["ran"] and "proposals.yaml" in modeling["why"]
+    assert modeling["ran"] and "the improvement ideas approved for it" in modeling["why"]

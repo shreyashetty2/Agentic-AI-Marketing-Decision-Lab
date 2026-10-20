@@ -39,6 +39,8 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # lets `lead.*` import when run as a script
 from lead.asof import calendar, describe, folder_name  # noqa: E402
+from lead.in_use import IN_USE_PATH  # noqa: E402
+from lead.in_use import load as load_in_use  # noqa: E402
 from lead.describe import column_meanings, gap_words, model_words, score_words  # noqa: E402
 from lead.rules import RULES_PATH, answered, load_rules  # noqa: E402
 from lead.surprises import never_seen, unusual_moves  # noqa: E402
@@ -82,8 +84,15 @@ def proposal_args(root: Path, models_folder: str, model: int | None) -> str:
     return f"--proposals --iteration {max(rounds)}" if rounds else ""
 
 
+def in_use_args(model: int | None, in_use_path: Path) -> str:
+    """--in-use <file> when a person chose an idea as this model's model in use."""
+    if model is None or model not in load_in_use(in_use_path):
+        return ""
+    return f"--in-use {in_use_path.relative_to(ROOT) if in_use_path.is_relative_to(ROOT) else in_use_path}"
+
+
 def plan_steps(spec: dict, models: list[int], day: int | None = None, folder: str | None = None,
-               root: Path = ROOT) -> list[Step]:
+               root: Path = ROOT, in_use_path: Path = IN_USE_PATH) -> list[Step]:
     """Data and features once, the replay step if replaying, then modeling and evaluation for each model."""
     folders = {k: v.replace("{folder}", folder or "")
                for k, v in spec.get("folders", {}).get("normal" if day is None else "replay", {}).items()}
@@ -91,7 +100,8 @@ def plan_steps(spec: dict, models: list[int], day: int | None = None, folder: st
     def make(name: str, model: int | None) -> Step:
         cfg = spec["steps"][name]
         values = {**folders, "n": "" if model is None else str(model), "day": "" if day is None else str(day),
-                  "proposals": "" if day is not None or "models" not in folders else proposal_args(root, folders["models"], model)}
+                  "proposals": "" if day is not None or "models" not in folders else proposal_args(root, folders["models"], model),
+                  "in_use": in_use_args(model, in_use_path)}
 
         def fill(text: str) -> str:
             for k, v in values.items():
@@ -120,6 +130,10 @@ def fingerprint(root: Path, patterns: list[str]) -> str:
 
 def input_words(pattern: str) -> str:
     """What kind of input a pattern is, for the person: data, code or instructions."""
+    if pattern.endswith("proposals.yaml"):
+        return "the improvement ideas approved for it"
+    if pattern.endswith("models_in_use.yaml"):
+        return "the choice of which model is in use"
     if pattern.endswith(".py"):
         return f"its code ({pattern})"
     if pattern.endswith((".yaml", ".yml")):
@@ -215,6 +229,9 @@ def read_modeling(root: Path, step: Step) -> dict:
             "options": {c: (f"{cand['title']} (an idea you approved): " if cand.get("title") else "") + model_words(cand, task)
                         for c, cand in m["candidates"].items()},
             "ideas_tested": m.get("proposals_used", []),
+            "in_use": ({"title": m["in_use"].get("title"), "decided_by": m["in_use"]["decided_by"],
+                        "decided_on": m["in_use"]["decided_on"], "why": m["in_use"].get("why")}
+                       if m.get("in_use") else "the team's own model"),
             "trained_on": {"campaigns": len(trained_on), "rows": used},
             "leans_on": [{"column": c, "share": round(float(v), 3), "meaning": meanings.get(c, c)}
                          for c, v in sorted(importances.items(), key=lambda kv: -kv[1])[:3]],
