@@ -153,7 +153,10 @@ An example, when a different kind of model scores best (illustrative numbers):
 - **Decisions made while building:**
   - **No held-back campaigns in a replay.** The Modeling Agent normally holds back its 5 newest test campaigns for a final check, so repeated idea-testing cannot pass by luck. In a replay every newly finished campaign is fresh, and the newest one is exactly what should be graded, so nothing is held back there.
   - **The surprise checks belong to the lead agent,** not to the Data and Feature Agents, so no teammate's files change. They run after the Feature Agent and before any model. Only everyday-shopping columns (spend, trips, coupon use, basket size) are watched for unusual moves: more than 4 times the usual campaign-to-campaign move, and at least 10%. Columns tied to the campaign itself, such as spend on its products, change between campaigns by design. On our two years nothing trips the check; an 80% drop in coupon use would be about 40 times the usual move.
-  - **The newest campaign's usual range** counts only campaigns big enough to mean something (Model 1: at least 15 redeemers) and needs at least 5 earlier ones.
+  - **The newest campaign's usual range** is checked only in a replay, where no campaign is held back. It counts only campaigns big enough to mean something (Model 1: at least 15 redeemers) and needs at least 5 earlier ones.
+  - **A column going blank is a surprise too:** its share of households with no value is watched the same way as its average.
+  - **One model stopping stops only that model.** The Data and Feature Agents and the surprise checks stop everything, since every model depends on them.
+  - **A replay's questions are kept apart** from a real run's, so a real alert is never shown as "still open" because a simulation once raised it.
   - **Row counts:** the Modeling Agent checks the full dataset's exact counts only when reproducing the owners' numbers. Otherwise it records the rows it used, and the lead agent checks them against the table it was given.
   - **A replay never steps backwards:** replaying an earlier day never replaces the approved model with one that knows less.
   - **A rule never edits another agent's files.** It records the decision and says when that agent's owner needs to apply it.
