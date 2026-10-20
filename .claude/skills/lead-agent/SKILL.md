@@ -1,6 +1,6 @@
 ---
 name: lead-agent
-description: Act as the lead agent -- the one agent a data scientist talks to. It runs the Data, Feature, Modeling and Evaluation Agents in order behind the scenes (only what is out of date), then explains the result in plain words, asks about anything new, and saves the person's answers as rules. Use when the user asks to run the lead agent, run or bring a model up to date, replay a day ("as of day 660"), or answer one of its questions.
+description: Act as the lead agent -- the one agent a data scientist talks to. It runs the Data, Feature, Modeling and Evaluation Agents in order behind the scenes (only what is out of date), explains the result in plain words, asks about anything new, saves the person's answers as rules, and improves a model on request (ideas, approval, rerun). Use when the user asks to run the lead agent, run, improve or fix a model, replay a day ("as of day 660"), or answer one of its questions.
 ---
 
 # Lead Agent
@@ -63,7 +63,7 @@ Read `data/processed/lead_agent/run_summary.json`. Its `steps` list each agent's
 "its instructions" = its settings changed -- say which, in plain words), and:
 - the replay step: `as_of` (campaigns finished, running, not started) and the top-level `since_last_replay`
 - modeling: `current_model` (already in plain words), `options`, `trained_on` (campaigns, rows), `leans_on`
-  (column, share, meaning)
+  (column, share, meaning), `ideas_tested` (approved improvement ideas included in this run)
 - evaluation: `facts` (`current_score`, `simple_rule_score`, `vs_simple_rule`, `alternatives`,
   `forecast_check`) and `model_update` (`action`: first_approved / replaced / kept / unchanged / none_approved,
   `reason`, `approved`, `previous`)
@@ -94,11 +94,11 @@ rest as "too close to call".> <forecast_check in plain words>.
 <Only if `model_update` is replaced, kept or first_approved:> **Which version is in use:** <in plain words,
 below. "In use" means the version the marketing tool would score households with.>
 
-**Needs your input:** <questions for the person (data questions, a new department, a column that went blank,
-a model that did worse than usual), each in full, plain words, with a clear question; or "Nothing.">
-<Questions for the team or a model's owner about how the models are built or graded (`who` is "team" or a
-name): ONE line only, e.g. "There are 2 open questions for the team about how I grade models; ask me if you want
-the details." Questions the team already knows about: one line, or nothing.>
+**Needs your input:** <every `new` / `still_open` question is for the person you are talking to -- they own the
+model while they run it; never address one to someone else by name. Each in plain words with a clear question,
+most important first; if there are more than 3 for one model, give the 3 that matter most and say how many more
+there are. If the model was sent back, its main problem goes in the closing offer below, not here. Or "Nothing.">
+<Questions the team already knows about (`known`): one line, or nothing.>
 ```
 
 `model_update` in words:
@@ -117,7 +117,10 @@ something new in the data", not an agent's name), that nothing after it
 ran (so no model was trained on data nobody understands), then ask each `new` / `still_open` question that
 stopped it. Offer to save their answer as a rule.
 
-Then end with: "Want me to go into any of this, or move on?" -- and nothing else.
+Then end with ONE offer, and nothing else:
+- the model was sent back: offer to fix its main problem, in plain words -- e.g. "Want me to think through ways
+  to fix the low totals?" (section 4)
+- otherwise: "Want me to go into any of this, or try to improve it?"
 
 ## 3. The person answers a question
 
@@ -135,6 +138,46 @@ Then end with: "Want me to go into any of this, or move on?" -- and nothing else
 
 Never save a rule the person did not confirm.
 
+## 4. The person wants a model improved ("yes, fix it", "try to improve it")
+
+You think it through yourself, from what was measured, and relay every step; the person never sees the agents.
+
+1. Run `.venv/bin/python src/modeling/brain.py --model N --manual > /dev/null`, then read
+   `data/processed/modeling_agent/modelN/brief.md`: the latest results, which columns may be added, the settings
+   allowed, and earlier ideas with their results. Everything you may use is in it.
+2. Think it through. Write your reading of the results to `data/processed/modeling_agent/modelN/brain_diagnosis.md`,
+   and append up to 5 ideas to `data/processed/modeling_agent/modelN/proposals.yaml`, each with `title`, `reason`,
+   `expected` and one change: `add_columns` / `drop_columns` (columns from the brief's "may add" list), `family`
+   (forest, lightgbm, logistic; linear for Model 2), `params` (within the brief's ranges), or
+   `new_column: {name, definition}` for a column that does not exist yet. Leave out `id`, `from`, `approved`.
+   Aim the ideas at the model's main problem when it was sent back (e.g. low totals).
+3. Run `.venv/bin/python src/modeling/brain.py --model N --check > /dev/null`; it numbers the ideas and checks
+   them against the safety rules. Leave out any it rejects, with one line saying why.
+4. Show, in plain words:
+
+```
+**What I think is going on:** <3-4 sentences from what was measured>
+
+**What I'd try:**
+1. <the change in plain words, e.g. "The same model, but fit to the average instead of the middle, so the totals
+   come out right"> -- why: <one sentence> -- what would show it worked: <one sentence>
+2. ...
+<Needs a new column built first: one line each; that is not automatic yet, so say who would build it.>
+
+Want me to run these? Pick any, or say "all".
+```
+
+5. Set `approved: true` on exactly the ideas they picked, nothing else, in that `proposals.yaml`. Then run the
+   model again as in section 1 (`src/lead/engine.py --model N`): the approved ideas are tested as extra options.
+6. Explain the result as in section 2. The ideas appear in `options` marked "(an idea you approved)" and in
+   `facts.alternatives`: say for each whether it made a real difference or could be luck. A gain is not proven
+   until it holds on the campaigns held back for a final check; never call it proven. Offer that final check only
+   if an idea really beat the current model: it can be done once
+   (`.venv/bin/python src/evaluation/agent.py --model N --unlock`, result in
+   `data/processed/evaluation_agent/modelN/unlock_report.md`); ask before running it.
+7. Switching the model in use to an idea is the decision of whoever looks after that model: recommend, say why,
+   ask. Never edit the models' own scripts.
+
 ## Answering follow-up questions
 
 - **More detail on a model:** the Evaluation Agent's report for that run (the `evals` folder of the step,
@@ -147,5 +190,4 @@ Never save a rule the person did not confirm.
   how options are picked; the model is graded on redeemers caught. Not in the summary unless asked.
 - **"Why didn't it retrain?"**: no campaign finished since the last run, so the tables the model learns from are
   the same; retraining would give the same model.
-- **Improving a model** (trying new columns, settings, other kinds of model) is the modeling agent's job: suggest
-  `/modeling-agent run on model N`.
+- Never send the person to another skill or agent: whatever they ask about the models, you handle here.
