@@ -241,13 +241,16 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
     log.record("EVA-VERDICT", f"verdict for the owner's model: {verdict}", verdict, decided_by, " ".join(reasons),
                evidence={k: v for k, v in facts.items()})
 
-    newest = newest_campaign(d, primary, default, ecfg["newest_campaign"]) if "newest_campaign" in ecfg else None
+    # Only when no campaign is held back (the lead agent's replay): otherwise the newest campaigns are locked away
+    # and "newest" would really mean the newest open one.
+    newest = (newest_campaign(d, primary, default, ecfg["newest_campaign"])
+              if "newest_campaign" in ecfg and not manifest["locked_campaigns"] else None)
     if newest and newest["worse_than_usual"]:
         log.record("EVA-NEW", f"newest campaign {newest['campaign']}: {primary} {newest['score']:.4f}, usual range "
                    f"{newest['usual_low']:.4f} to {newest['usual_high']:.4f}", "ask the owner", "human_needed",
                    "The model did worse than usual on the newest campaign; something may have changed.", evidence=newest)
         questions.append(("worse_than_usual", mcfg["owner"].split(" (")[0],
-                          f"On the newest campaign ({newest['campaign']}) the model scored {newest['score']:.4f} on "
+                          f"On the newest finished campaign big enough to count ({newest['campaign']}) the model scored {newest['score']:.4f} on "
                           f"{primary}, outside its usual range of {newest['usual_low']:.4f} to {newest['usual_high']:.4f} "
                           f"(from {newest['n_history']} earlier campaigns). Has something changed?"))
     questions += open_questions(model_id, mcfg, ecfg, d, default, vs_base, vs_rule, alternatives, cal, in_dir, cands)
