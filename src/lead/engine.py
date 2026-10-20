@@ -238,6 +238,10 @@ def update_approved(root: Path, spec: dict, step: Step, report: dict, when: str,
         return {"action": "kept" if previous else "none_approved", "reason": why, "approved": previous}
     if previous and previous["run_id"] == report["run_id"]:
         return {"action": "unchanged", "reason": "this version is already the approved one", "approved": previous}
+    if previous and step.day is not None and previous.get("as_of_day") is not None and step.day < previous["as_of_day"]:
+        return {"action": "kept", "approved": previous,
+                "reason": f"this replay day is earlier than the approved version's (day {previous['as_of_day']}); "
+                          "a model that knows less never replaces one that knows more"}
     record = {"run_id": report["run_id"], "as_of_day": step.day, "replay_folder": step.replay, "approved_at": when,
               "verdict": report["verdict"], "primary_metric": report["primary_metric"],
               "score": report["scores"][report["owner_model"]], "owner_model": report["owner_model"],

@@ -566,3 +566,12 @@ def test_the_reason_names_which_input_changed(tmp_path):
     (root / "rules.yaml").write_text("a: 2")
     assert needs_run(step, root, state)[1] == ("changed since it last ran: its code (code.py), "
                                                "its instructions (rules.yaml)")
+
+
+def test_stepping_back_in_a_replay_never_replaces_the_approved_model(tmp_path):
+    root, spec = make_repo(tmp_path)
+    run([1], spec, root, day=520)
+    later = approved(root, replay=True)
+    u = update_of(run([1], spec, root, day=500))
+    assert u["action"] == "kept" and "earlier than the approved version's (day 520)" in u["reason"]
+    assert approved(root, replay=True) == later
