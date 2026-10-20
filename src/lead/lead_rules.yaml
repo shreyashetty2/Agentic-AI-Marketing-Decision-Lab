@@ -1,3 +1,27 @@
 # Lead Agent rules: answers a person gave to the lead agent's questions (src/lead/rules.py).
 # Each one is reported as answered instead of asked again. Written by `rules.py approve`; edit with care.
-rules: []
+rules:
+- question: evaluation:1:measure_note
+  rule: 'Model 1''s options are picked by within-campaign AUC (smoother) and the winner is graded by redeemers caught
+    in the top 20%: picking by redeemers caught would jump by whole households and pick partly by luck.'
+  answer: Yes, obvious decision.
+  decided_by: Pranav Jain
+  decided_on: '2026-10-20'
+- question: evaluation:1:MOD-07
+  rule: A test campaign with too little finished history before it is left out of comparing options; options cannot
+    be compared fairly on it. The summary says how many campaigns the comparison covers.
+  answer: Yes, obvious decision.
+  decided_by: Pranav Jain
+  decided_on: '2026-10-20'
+- question: evaluation:2:MOD-07
+  rule: A test campaign with too little finished history before it is left out of comparing options; options cannot
+    be compared fairly on it. The summary says how many campaigns the comparison covers.
+  answer: Yes, obvious decision.
+  decided_by: Pranav Jain
+  decided_on: '2026-10-20'
+- question: evaluation:3:MOD-07
+  rule: A test campaign with too little finished history before it is left out of comparing options; options cannot
+    be compared fairly on it. The summary says how many campaigns the comparison covers.
+  answer: Yes, obvious decision.
+  decided_by: Pranav Jain
+  decided_on: '2026-10-20'
