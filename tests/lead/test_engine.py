@@ -147,7 +147,7 @@ def test_needs_run_gives_the_reason(tmp_path):
     state = {"steps": {"data": {"inputs": fingerprint(root, ["raw.csv"])}}}
     assert needs_run(step, root, state) == (False, "up to date")
     (root / "raw.csv").write_text("a,b\n9,9\n")
-    assert needs_run(step, root, state) == (True, "its inputs changed since it last ran")
+    assert needs_run(step, root, state) == (True, "changed since it last ran: the data it reads (raw.csv)")
 
 
 # ---- whole runs --------------------------------------------------------------------------------------------
@@ -551,3 +551,18 @@ def test_the_summary_carries_the_measured_facts_in_plain_words(tmp_path):
     assert facts["vs_simple_rule"] == "+8.0 points (likely range +5.0 points to +12.0 points: a real difference)"
     assert facts["alternatives"]["alt"].endswith("could be luck)")
     assert facts["forecast_check"].endswith("-- passes")
+
+
+def test_the_reason_names_which_input_changed(tmp_path):
+    root, _ = make_repo(tmp_path)
+    (root / "code.py").write_text("x = 1")
+    (root / "rules.yaml").write_text("a: 1")
+    step = Step("data", "Data Agent", None, [], ["raw.csv", "code.py", "rules.yaml"], ["raw.csv"])
+    from lead.engine import record
+    state = {"steps": {"data": record(step, root, "t")}}
+    assert needs_run(step, root, state) == (False, "up to date")
+    (root / "code.py").write_text("x = 2")
+    assert needs_run(step, root, state) == (True, "changed since it last ran: its code (code.py)")
+    (root / "rules.yaml").write_text("a: 2")
+    assert needs_run(step, root, state)[1] == ("changed since it last ran: its code (code.py), "
+                                               "its instructions (rules.yaml)")

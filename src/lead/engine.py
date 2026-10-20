@@ -106,6 +106,21 @@ def fingerprint(root: Path, patterns: list[str]) -> str:
     return digest.hexdigest()
 
 
+def input_words(pattern: str) -> str:
+    """What kind of input a pattern is, for the person: data, code or instructions."""
+    if pattern.endswith(".py"):
+        return f"its code ({pattern})"
+    if pattern.endswith((".yaml", ".yml")):
+        return f"its instructions ({pattern})"
+    return f"the data it reads ({pattern})"
+
+
+def record(step: Step, root: Path, when: str) -> dict:
+    """What a finished step depended on: one hash over all inputs, and one per input to say later which changed."""
+    return {"inputs": fingerprint(root, step.inputs), "parts": {p: fingerprint(root, [p]) for p in step.inputs},
+            "finished_at": when}
+
+
 def needs_run(step: Step, root: Path, state: dict) -> tuple[bool, str]:
     if any(not (root / o).exists() for o in step.outputs):
         return True, "an output is missing"
@@ -113,7 +128,9 @@ def needs_run(step: Step, root: Path, state: dict) -> tuple[bool, str]:
     if last is None:
         return True, "no record of an earlier run"
     if last["inputs"] != fingerprint(root, step.inputs):
-        return True, "its inputs changed since it last ran"
+        parts = last.get("parts")
+        changed = [p for p in step.inputs if parts is None or parts.get(p) != fingerprint(root, [p])]
+        return True, "changed since it last ran: " + ", ".join(input_words(p) for p in changed)
     return False, "up to date"
 
 
@@ -301,7 +318,7 @@ def run(models: list[int], spec: dict, root: Path = ROOT, plan_only: bool = Fals
             if not ok:
                 entry["status"] = "stopped"
                 return stop(f"{step.agent}: {message}")
-            state["steps"][step.key] = {"inputs": fingerprint(root, step.inputs), "finished_at": now}
+            state["steps"][step.key] = record(step, root, now)
         report = READERS[step.name](root, step)
         if step.name == "modeling":
             modeling_reports[step.model] = report
@@ -393,7 +410,7 @@ def mark_current(spec: dict, root: Path = ROOT) -> list[str]:
     marked = []
     for step in plan_steps(spec, [1, 2, 3]):
         if all((root / o).exists() for o in step.outputs):
-            state["steps"][step.key] = {"inputs": fingerprint(root, step.inputs), "finished_at": "marked current"}
+            state["steps"][step.key] = record(step, root, "marked current")
             marked.append(step.key)
     out_dir.mkdir(parents=True, exist_ok=True)
     state_path.write_text(json.dumps(state, indent=2))
