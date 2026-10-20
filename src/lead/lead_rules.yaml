@@ -1,0 +1,3 @@
+# Lead Agent rules: answers a person gave to the lead agent's questions (src/lead/rules.py).
+# Each one is reported as answered instead of asked again. Written by `rules.py approve`; edit with care.
+rules: []
