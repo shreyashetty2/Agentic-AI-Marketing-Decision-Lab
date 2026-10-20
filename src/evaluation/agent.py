@@ -169,7 +169,9 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
     primary = ecfg["primary"]
     facts = {"iteration": manifest["iteration"] if iteration is None else iteration}
 
-    questions = []   # every genuine question goes to a person: (who should answer, the question)
+    # every genuine question goes to a person: (key, who should answer, the question). The key names the kind of
+    # question and stays the same from run to run, so the lead agent can tell a question it already asked from a new one.
+    questions = []
     if mcfg["task"] == "uplift":
         pcfg = mcfg["propensity"]
         share = float(d.loc[d["treatment"] == 1, "in_overlap"].mean())
@@ -182,7 +184,7 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
                    f"Need overlap >= {ecfg['min_overlap_share']:.0%} and every gap <= {pcfg['unusable_above']} for weighted "
                    "uplift numbers to be usable.", evidence={"overlap_share": share, "balance": gaps})
         if facts["comparison_ok"] and gaps[worst] > pcfg["balanced_below"]:
-            questions.append(("team", f"After weighting, mailed and unmailed households still differ ({worst} gap "
+            questions.append(("uplift_balance", "team", f"After weighting, mailed and unmailed households still differ ({worst} gap "
                               f"{gaps[worst]:.2f}; balanced is below {pcfg['balanced_below']}). Uplift numbers below are "
                               "approximate -- is that good enough to act on?"))
 
@@ -217,7 +219,7 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
     questions += open_questions(model_id, mcfg, ecfg, d, default, vs_base, vs_rule, alternatives, cal, in_dir, cands)
     gains = attribution(cands, alternatives)
     ledger_upsert(ROOT / mspec["output"]["dir"] / "proposal_ledger.csv", ledger_rows(model_id, cands, alternatives, "open"))
-    for who, q in questions:
+    for _, who, q in questions:
         log.record("EVA-Q", q, f"ask the {who}", "human_needed", "A question the rules should not settle on their own.")
     extra = {name: metric(name)[0](scored_by(d, default)) for name in [primary] + ecfg["also_report"]}
     # every option's own score on the primary measure, and the simple rule's (random targeting is 0 by definition)
@@ -227,7 +229,7 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
               "owner_model": default, "primary_metric": primary, "vs_baseline": vs_base, "vs_rule": vs_rule,
               "alternatives": alternatives, "attribution": gains, "candidates": cands,
               "locked_campaigns": manifest["locked_campaigns"], "agent_choice": agent_choice, "calibration": cal, "facts": facts,
-              "metrics_owner_model": extra, "scores": scores, "questions": [{"who": w, "question": q} for w, q in questions], "checks": passed, "run_id": manifest["run_id"]}
+              "metrics_owner_model": extra, "scores": scores, "questions": [{"key": k, "who": w, "question": q} for k, w, q in questions], "checks": passed, "run_id": manifest["run_id"]}
     out = ROOT / spec["output"]["dir"] / f"model{model_id}"
     out.mkdir(parents=True, exist_ok=True)
     (out / "verdict.json").write_text(json.dumps(result, indent=2, default=float))
@@ -237,31 +239,31 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
     return result
 
 
-def open_questions(model_id, mcfg, ecfg, d, default, vs_base, vs_rule, alternatives, cal, in_dir, cands) -> list[tuple[str, str]]:
+def open_questions(model_id, mcfg, ecfg, d, default, vs_base, vs_rule, alternatives, cal, in_dir, cands) -> list[tuple[str, str, str]]:
     """Everything a person should look at: anything inconclusive, anything that disagrees with the owner,
     any choice the agents made that the team has not signed off, and whatever the Modeling Agent flagged."""
     out = []
     owner = mcfg["owner"].split(" (")[0]
     if vs_base["status"] == "inconclusive":
-        out.append((owner, f"Can't tell whether the model beats {ecfg['baseline_name']}: gap {vs_base['gap']:+.4f}, "
+        out.append(("baseline_inconclusive", owner, f"Can't tell whether the model beats {ecfg['baseline_name']}: gap {vs_base['gap']:+.4f}, "
                     f"range {vs_base['low']:+.4f} to {vs_base['high']:+.4f} includes zero."))
     for c, r in alternatives.items():
         if r["status"] == "pass":
-            out.append((owner, f"Alternative `{c}` ({' + '.join(cands[c]['changes'])} changed) beats the owner's "
+            out.append((f"alternative_beats_owner:{c}", owner, f"Alternative `{c}` ({' + '.join(cands[c]['changes'])} changed) beats the owner's "
                         f"`{default}` by {r['gap']:+.4f} on {ecfg['primary']} (range {r['low']:+.4f} to "
                         f"{r['high']:+.4f}). Adopt it? Confirm on the locked campaigns first (--unlock)."))
     if not cal["ok"]:
-        out.append((owner, f"The model's numbers don't match reality: {cal['summary']}."))
+        out.append(("calibration", owner, f"The model's numbers don't match reality: {cal['summary']}."))
     if mcfg["task"] == "regress" and vs_base["status"] != "pass":
-        out.append((owner, f"{ecfg['baseline_name']} is as good as the model on unseen campaigns; should it be the "
+        out.append(("baseline_as_good", owner, f"{ecfg['baseline_name']} is as good as the model on unseen campaigns; should it be the "
                     "forecast to beat?"))
     if mcfg["task"] == "uplift":
         raw = metric("raw_stratified_qini")[0](scored_by(d, default))
-        out.append((owner, f"Unweighted Qini {raw:+.4f} vs. weighted {vs_base['gap']:+.4f}: the unweighted score mostly "
+        out.append(("uplift_unweighted_qini", owner, f"Unweighted Qini {raw:+.4f} vs. weighted {vs_base['gap']:+.4f}: the unweighted score mostly "
                     f"reflects who got mailed. Against '{ecfg['rule_name']}' the model scores {vs_rule['gap']:+.4f} "
                     f"(range {vs_rule['low']:+.4f} to {vs_rule['high']:+.4f})."))
     if ecfg.get("measure_note"):
-        out.append(("team", ecfg["measure_note"]))
+        out.append(("measure_note", "team", ecfg["measure_note"]))
     # The Modeling Agent's own flags. Its recommendation (MOD-06) is already asked above, with an interval,
     # whenever the evaluation confirms it; otherwise it is asked here with the reason it was not confirmed.
     flagged = json.loads((in_dir / "decisions.json").read_text())
@@ -272,10 +274,10 @@ def open_questions(model_id, mcfg, ecfg, d, default, vs_base, vs_rule, alternati
             pick = r["action"].removeprefix("recommend ").removesuffix(" to the owner")
             if alternatives.get(pick, {}).get("status") == "pass":
                 continue
-            out.append(("team", f"Modeling Agent recommends `{pick}`, but its edge over the owner's model is within "
+            out.append((f"recommendation_unproven:{pick}", "team", f"Modeling Agent recommends `{pick}`, but its edge over the owner's model is within "
                         "noise on the evaluation's interval. Treat it as unproven."))
             continue
-        out.append(("team", f"Modeling Agent ({r['check_id']}): {r['finding']}. {r['rationale']}"))
+        out.append((r["check_id"], "team", f"Modeling Agent ({r['check_id']}): {r['finding']}. {r['rationale']}"))
     return out
 
 
