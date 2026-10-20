@@ -258,3 +258,46 @@ def test_median_linear_is_a_learner_for_dollar_answers():
     assert np.allclose(est.predict(X), 2 * X["u"] + 1, atol=1e-6)
     with pytest.raises(ValueError):
         build_estimator("median_linear", "classify", {})
+
+
+# --------------------------------------------------------------- tables that are not the full dataset (lead agent replay)
+def _real_cut(tmp_path, keep_campaigns):
+    from modeling.agent import ROOT
+    real = ROOT / "data/processed/model1_table.parquet"
+    if not real.exists():
+        pytest.skip("the Feature Agent has not been run on this machine")
+    table = pd.read_parquet(real)
+    table[table["campaign"].isin(keep_campaigns)].to_parquet(tmp_path / "model1_table.parquet", index=False)
+    return table
+
+
+def _prepare(tmp_path, exact_counts):
+    from modeling.agent import load_modeling_spec, prepare_table
+    spec = load_modeling_spec()
+    return prepare_table(1, spec["models"][1], spec, tmp_path, [], DecisionLog("modeling", 1, "t"),
+                         exact_counts=exact_counts)
+
+
+def test_a_cut_table_passes_without_exact_counts_and_stops_with_them(tmp_path):
+    _real_cut(tmp_path, [1, 2, 3, 8, 13])
+    table, _ = _prepare(tmp_path, exact_counts=False)
+    assert 0 < len(table) < 7208
+    with pytest.raises(SystemExit, match="expected 7,208"):
+        _prepare(tmp_path, exact_counts=True)
+
+
+def test_a_blank_label_stops_even_without_exact_counts(tmp_path):
+    table = _real_cut(tmp_path, [1, 2, 3])
+    cut = table[table["campaign"].isin([1, 2, 3])].copy()
+    cut["redeemed_flag"] = cut["redeemed_flag"].astype(float)
+    cut.iloc[0, cut.columns.get_loc("redeemed_flag")] = np.nan
+    cut.to_parquet(tmp_path / "model1_table.parquet", index=False)
+    with pytest.raises(SystemExit, match="every label filled"):
+        _prepare(tmp_path, exact_counts=False)
+
+
+def test_forward_runs_on_the_full_table_still_check_exact_counts():
+    """Teammates running the agent as before keep the full dataset's count checks (the default)."""
+    import inspect
+    from modeling.agent import run_model
+    assert inspect.signature(run_model).parameters["exact_counts"].default is True

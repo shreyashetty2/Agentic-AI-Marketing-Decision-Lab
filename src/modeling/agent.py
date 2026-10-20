@@ -190,9 +190,8 @@ def prepare_table(model_id: int, mcfg: dict, spec: dict, processed: Path, passed
                   proposals: list[dict] | None = None, exact_counts: bool = True):
     """The owner's table, checked against the instructions, with blanks filled and (Model 3) propensity weights.
     proposals: the model's proposals.yaml entries; the approved ones become extra candidates.
-    exact_counts: check the row counts recorded in the instructions. Those are the counts of the full dataset,
-    so they belong with reproducing the owners' numbers; on any other table (new data, the lead agent's replay)
-    the counts are recorded in the manifest instead, and the lead agent checks them against the Feature Agent."""
+    exact_counts: check the row counts recorded in the instructions (the full dataset's). The lead agent's
+    replay turns this off; the manifest records the rows used either way."""
     check_scripts(model_id, mcfg, log)
     table = load_owner_table(model_id, processed)
     label, exp = mcfg["label"], mcfg["expected"]
@@ -485,9 +484,11 @@ def render_report(model_id, mcfg, cands, preds, folds, final, passed, reproduced
 
 
 def run_model(model_id: int, spec: dict, processed: Path, mode: str, iteration: int, use_proposals: bool = False,
-              out_root: Path | None = None, locked: int | None = None) -> Path:
+              out_root: Path | None = None, locked: int | None = None, exact_counts: bool = True) -> Path:
     """out_root: where the model{n} folder goes (default: the spec's output dir). locked: overrides
-    locked_test_campaigns; the lead agent's replay uses 0, since there every newly finished campaign is fresh."""
+    locked_test_campaigns; the lead agent's replay uses 0, since there every newly finished campaign is fresh.
+    exact_counts: False for a table that is not the full dataset (the lead agent's replay), whose row counts
+    are not the ones in the instructions; the lead agent checks the rows used against the table instead."""
     t0, passed = time.time(), []
     mcfg = spec["models"][model_id] if locked is None else {**spec["models"][model_id], "locked_test_campaigns": locked}
     run_id = time.strftime("%Y%m%d-%H%M%S")
@@ -496,8 +497,7 @@ def run_model(model_id: int, spec: dict, processed: Path, mode: str, iteration: 
     proposals = load_proposals(out_dir) if use_proposals else None
     if use_proposals:
         check(bool(proposals), f"model {model_id}: proposals.yaml found in {out_dir}", passed)
-    table, cands = prepare_table(model_id, mcfg, spec, processed, passed, log, proposals,
-                                 exact_counts=mode in ("reproduce", "both"))
+    table, cands = prepare_table(model_id, mcfg, spec, processed, passed, log, proposals, exact_counts)
     agent = ModelingAgent(model_id, mcfg, spec, table, cands, log)
     reproduced = reproduce(agent, passed) if mode in ("reproduce", "both") else {}
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -541,10 +541,13 @@ def main() -> None:
     parser.add_argument("--proposals", action="store_true", help="also test the approved proposals in proposals.yaml")
     parser.add_argument("--out", type=Path, default=None, help="folder for the model{n} hand-offs (default: the spec's)")
     parser.add_argument("--locked", type=int, default=None, help="override how many latest test campaigns are locked")
+    parser.add_argument("--no-exact-counts", action="store_true",
+                        help="the table is not the full dataset: skip the instructions' exact row counts")
     args = parser.parse_args()
     spec = load_modeling_spec()
     for model_id in ([1, 2, 3] if args.model == "all" else [int(args.model)]):
-        run_model(model_id, spec, args.processed, args.mode, args.iteration, args.proposals, args.out, args.locked)
+        run_model(model_id, spec, args.processed, args.mode, args.iteration, args.proposals, args.out, args.locked,
+                  not args.no_exact_counts)
 
 
 if __name__ == "__main__":
