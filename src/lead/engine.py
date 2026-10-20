@@ -279,6 +279,12 @@ def update_approved(root: Path, spec: dict, step: Step, report: dict, when: str,
         return {"action": "kept", "approved": previous,
                 "reason": f"this replay day is earlier than the approved version's (day {previous['as_of_day']}); "
                           "a model that knows less never replaces one that knows more"}
+    same = (modeling or {}).get("current_model") == previous.get("model") and \
+        (modeling or {}).get("trained_on") == previous.get("trained_on") and \
+        round(report["scores"][report["owner_model"]], 6) == round(previous.get("score", -1), 6) if previous else False
+    if same:   # retrained on the same data with the same settings: the same model, so nothing to report
+        return {"action": "unchanged", "reason": "retrained on the same data and settings, with the same result",
+                "approved": previous}
     record = {"run_id": report["run_id"], "as_of_day": step.day, "replay_folder": step.replay, "approved_at": when,
               "verdict": report["verdict"], "primary_metric": report["primary_metric"],
               "score": report["scores"][report["owner_model"]], "owner_model": report["owner_model"],

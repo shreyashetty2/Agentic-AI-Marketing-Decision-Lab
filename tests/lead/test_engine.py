@@ -58,7 +58,7 @@ elif step == "evaluation":
     verdict = sc.get("verdict", "approve")
     gap = {"gap": 0.08, "low": 0.05, "high": 0.12, "status": "pass"}
     (d / "verdict.json").write_text(json.dumps({"verdict": verdict, "decided_by": "rule", "reasons": [f"EVA: {verdict}"],
-                                                "questions": qs, "scores": {"own": 0.56, "alt": 0.55, "baseline_score": 0.48},
+                                                "questions": qs, "scores": {"own": sc.get("score", 0.56), "alt": 0.55, "baseline_score": 0.48},
                                                 "primary_metric": "within_campaign_capture", "owner_model": "own",
                                                 "vs_baseline": gap, "alternatives": {"alt": {**gap, "status": "inconclusive"}},
                                                 "calibration": {"ok": True, "summary": "inside the range for 92% of 13 campaigns"},
@@ -440,6 +440,7 @@ def test_a_passing_retrain_replaces_the_approved_model(tmp_path):
     root, spec = make_repo(tmp_path)
     run([1], spec, root)
     first = approved(root)
+    set_scenario(root, score=0.58)                                                     # a different model this time
     pd.DataFrame({"campaign": range(9)}).to_parquet(root / "data/processed/model1_table.parquet")
     u = update_of(run([1], spec, root))
     assert u["action"] == "replaced" and u["previous"]["run_id"] == first["run_id"]
@@ -613,6 +614,7 @@ def test_a_report_the_engine_cannot_read_stops_cleanly_and_keeps_the_record(tmp_
     (root / "data/processed/modeling_agent/model1/final_model.joblib").unlink()        # needed to approve a model
     pd.DataFrame({"campaign": range(9)}).to_parquet(root / "data/processed/model1_table.parquet")
     (root / "fake_agent.py").write_text(FAKE_AGENT.replace('(d / "final_model.joblib").write_bytes', 'str'))
+    set_scenario(root, score=0.6)                                                      # a new model, so it must be copied
     s = run([1], spec, root)
     assert s["status"] == "stopped" and "Evaluation Agent: could not read what it wrote (FileNotFoundError" in s["stopped_because"]
     state = json.loads((root / "data/processed/lead_agent/state.json").read_text())
@@ -708,3 +710,11 @@ def test_approving_an_idea_makes_the_model_run_again(tmp_path):
     s = run([1], spec, root)
     modeling = next(e for e in s["steps"] if e["step"] == "modeling:model1")
     assert modeling["ran"] and "the improvement ideas approved for it" in modeling["why"]
+
+
+def test_a_retrain_that_gives_the_same_model_is_unchanged_not_replaced(tmp_path):
+    root, spec = make_repo(tmp_path)
+    run([1], spec, root)
+    pd.DataFrame({"campaign": range(9)}).to_parquet(root / "data/processed/model1_table.parquet")   # forces a retrain
+    u = update_of(run([1], spec, root))
+    assert u["action"] == "unchanged" and u["reason"].startswith("retrained on the same data")
