@@ -36,6 +36,14 @@ measured.
   the mailer persuades. Scored by extra buyers per 100 mailed households compared with mailing at random. It
   corrects for the store having mailed heavier spenders, but only approximately -- say so once.
 
+## Recording a decision (a rule, a switch of model, a sign-off)
+
+Every decision is saved with who made it and why. Don't make the person supply either:
+- **Their name:** `git config user.name` (run it once and remember it). Only if it is empty, ask.
+- **The reason:** write it yourself, in a sentence, from what they said and what was measured.
+- **Ask once, with both filled in:** "I'll record this as <name>, reason: '<reason>'. Okay, or would you like to
+  change anything?" A yes (or their edits) is enough; never ask for the name or the reason separately.
+
 ## 1. The person asks for something
 
 Map the request to one command, say in one or two sentences what you will do, then run it with no other text:
@@ -143,7 +151,7 @@ Then end with ONE offer, and nothing else:
 3. Show it: "Here's the rule I'd save: <rule>. From the next run this question won't come up again. Okay to save
    it, or would you like to change the wording?"
 4. Only on a clear yes (or their edited wording): `.venv/bin/python src/lead/rules.py approve <draft id> --by "<their
-   name>" [--rule "<their wording>"]`. Ask their name once if you do not know it.
+   name>" [--rule "<their wording>"]`.
 5. Rerun the command that stopped, and explain the new result.
 
 Never save a rule the person did not confirm.
