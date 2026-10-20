@@ -502,9 +502,11 @@ def run_model(model_id: int, spec: dict, processed: Path, mode: str, iteration: 
         check(bool(proposals), f"model {model_id}: proposals.yaml found in {out_dir}", passed)
     if in_use:
         check(mode == "forward", f"model {model_id}: a chosen model in use is only run in forward mode", passed)
-        proposals = [p for p in proposals or [] if p["id"] != in_use["id"]] + [{**in_use, "approved": True}]
+        if not in_use.get("option"):   # an improvement idea: tested as a proposal; an option is already a candidate
+            proposals = [p for p in proposals or [] if p["id"] != in_use["id"]] + [{**in_use, "approved": True}]
     table, cands = prepare_table(model_id, mcfg, spec, processed, passed, log, proposals, exact_counts)
     if in_use:
+        check(in_use["id"] in cands, f"model {model_id}: the chosen model in use `{in_use['id']}` is one of the options", passed)
         log.record("MOD-10", f"model in use: {in_use.get('title')} (`{in_use['id']}`), chosen by {in_use['decided_by']} "
                    f"on {in_use['decided_on']}", "use the chosen model", "rule",
                    f"A person's saved choice (src/lead/models_in_use.yaml); the owner's `{mcfg['default']}` stays in as an option.")

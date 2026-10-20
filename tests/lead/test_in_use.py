@@ -35,7 +35,7 @@ def test_an_idea_that_needs_a_new_column_or_does_not_exist_cannot_be_chosen(tmp_
     ideas, path = setup(tmp_path)
     with pytest.raises(SystemExit, match="needs a column that does not exist"):
         set_in_use(2, "r2_p4", "Pranav", "r", ideas, path)
-    with pytest.raises(SystemExit, match="no idea 'r9'"):
+    with pytest.raises(SystemExit, match="nothing called 'r9'"):
         set_in_use(2, "r9", "Pranav", "r", ideas, path)
     with pytest.raises(SystemExit, match="name of the person"):
         set_in_use(2, "r2_p1", " ", "r", ideas, path)
@@ -55,3 +55,16 @@ def test_the_engine_tells_the_modeling_agent_only_for_the_chosen_model(tmp_path)
 def test_the_real_models_in_use_file_loads():
     from lead.in_use import IN_USE_PATH
     assert isinstance(load(IN_USE_PATH), dict)
+
+
+def test_an_option_the_modeling_agent_always_tests_can_be_chosen_too(tmp_path):
+    import json
+    ideas, path = setup(tmp_path)
+    (tmp_path / "model2/manifest.json").write_text(json.dumps({
+        "final": {"task": "regress"},
+        "candidates": {"usual_only_linear": {"family": "linear", "features": ["usual_spend"]}}}))
+    e = set_in_use(2, "usual_only_linear", "Pranav", "totals pass", ideas, path, today="2026-10-21")
+    assert e["option"] is True and e["id"] == "usual_only_linear"
+    assert e["title"] == "linear regression (one weighted formula, giving dollars) on 1 column"
+    with pytest.raises(SystemExit, match="options: \\['usual_only_linear'\\]"):
+        set_in_use(2, "nope", "Pranav", "r", ideas, path)
