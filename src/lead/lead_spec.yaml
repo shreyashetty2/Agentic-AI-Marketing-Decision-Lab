@@ -1,0 +1,91 @@
+# Lead Agent: instruction document.
+# The engine (src/lead/engine.py) reads this file: which steps exist, in what order, what each one runs,
+# which files it depends on, and which open questions the team already knows about.
+# Design: docs/agent_design/lead_agent_design.md
+#
+# A step runs again only when its inputs changed since it last ran (file contents, not dates), or when
+# one of its outputs is missing. Paths are relative to the repo root; {n} is the model number, {day} the replay
+# day, and {tables} / {models} / {evals} the folders below.
+
+output_dir: data/processed/lead_agent
+
+steps:
+  data:
+    agent: Data Agent
+    runs:
+      - src/preprocessing/ingest.py
+      - src/preprocessing/build_spine.py
+      - src/preprocessing/check_integrity.py --skip-causal
+      - src/preprocessing/outlier_rules.py
+      - src/preprocessing/apply_decisions.py
+      - src/preprocessing/make_report.py
+    inputs: [data/raw/*.csv, src/preprocessing/*.py]
+    outputs: [data/processed/decision_log.csv, data/processed/spine_check.json]
+
+  features:
+    agent: Feature Agent
+    runs:
+      - src/features/build_2a.py --processed data/processed --causal data/raw/causal_data.csv
+      - src/features/build_2b.py --processed data/processed
+    inputs: [data/processed/spine_household_campaign.parquet, data/processed/transaction_data.parquet,
+             data/processed/coupon.parquet, data/processed/coupon_redempt.parquet, data/processed/product.parquet,
+             data/processed/hh_demographic.parquet, data/raw/causal_data.csv, src/features/*.py, src/features/*.yaml]
+    outputs: [data/processed/model1_table.parquet, data/processed/model2_table.parquet,
+              data/processed/model3_table.parquet, data/processed/feature_2b_report.md]
+
+  asof:                # only in a replay (--as-of DAY): the model tables as they would have looked that day
+    agent: Replay
+    runs:
+      - src/lead/asof.py --day {day} --out {tables}
+    inputs: [data/processed/model1_table.parquet, data/processed/model2_table.parquet,
+             data/processed/model3_table.parquet, data/processed/spine_household_campaign.parquet, src/lead/asof.py]
+    outputs: ["{tables}/asof.json"]
+
+  modeling:            # one run per model
+    agent: Modeling Agent
+    runs:
+      - src/modeling/agent.py --model {n} --mode forward --processed {tables} --out {models} {modeling_extra} {proposals} {in_use}
+    inputs: ["{tables}/model{n}_table.parquet", src/modeling/*.py, src/modeling/modeling_spec.yaml,
+             src/features/feature_2a_spec.yaml, "{models}/model{n}/proposals.yaml", src/lead/models_in_use.yaml]
+    outputs: ["{models}/model{n}/manifest.json"]
+
+  evaluation:          # one run per model
+    agent: Evaluation Agent
+    runs:
+      - src/evaluation/agent.py --model {n} --modeling {models} --processed {tables} --out {evals}
+    inputs: ["{models}/model{n}/manifest.json", "{models}/model{n}/predictions.parquet", "{tables}/model{n}_table.parquet",
+             src/evaluation/*.py, src/evaluation/evaluation_spec.yaml, src/modeling/modeling_spec.yaml]
+    outputs: ["{evals}/model{n}/verdict.json"]
+
+# {proposals}: in a normal run, the ideas a person approved in {models}/model{n}/proposals.yaml are tested
+# as extra options (--proposals --iteration R, R = the latest round approved); approving one is a change to
+# that file, so the model runs again. A replay never uses them.
+# {in_use}: when a person chose an idea as a model's model in use (src/lead/in_use.py), the Modeling Agent is
+# told to judge and refit that idea instead of the owner's script (which stays in as an option).
+# Where the model steps read and write. {folder} is the replay folder, named after the day the latest
+# finished campaign ended (src/lead/asof.py). In a replay no test campaign is locked: every newly finished
+# campaign is fresh, which is what the lock protects in the improvement loop.
+folders:
+  normal: {tables: data/processed, models: data/processed/modeling_agent, evals: data/processed/evaluation_agent,
+           modeling_extra: ""}
+  replay: {tables: "data/processed/lead_agent/replay/{folder}/tables",
+           models: "data/processed/lead_agent/replay/{folder}/modeling_agent",
+           evals: "data/processed/lead_agent/replay/{folder}/evaluation_agent",
+           modeling_extra: "--locked 0 --no-exact-counts"}
+
+# Questions the team already knows about and is working on. They are reported as "still open", never as
+# new, and never stop a run. When the team answers one, it becomes a rule in that agent's own instructions.
+known_questions:
+  - {agent: data, key: Q7b, note: "Whether gas and miscellaneous lines count as household spend (Oct 16 meeting)"}
+  - {agent: data, key: Q5-2, note: "Rows with no quantity but money recorded (Oct 16 meeting)"}
+
+# Surprise checks (src/lead/surprises.py), run after the Feature Agent and before any model. Only the
+# everyday-shopping columns are watched: they should stay steady unless a data feed breaks. Columns tied to
+# the campaign itself (its products, past campaign counts) change between campaigns by design.
+checks:
+  unusual_moves:
+    columns: [spend_per_week_8w, spend_per_week_26w, trips_per_week_8w, trips_per_week_26w, days_since_last_trip,
+              avg_basket_value_26w, n_departments_26w, coupon_lines_per_week_26w, share_spend_on_discount_26w]
+    move_sd: 4            # flag a move more than 4x the usual campaign-to-campaign move...
+    min_relative: 0.10    # ...and at least 10% of the column's level
+    min_history: 5        # moves needed before "usual" means anything

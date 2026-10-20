@@ -1,0 +1,10 @@
+# Lead Agent: models a person chose to use instead of the team's own (src/lead/in_use.py).
+# Empty = every model in use is its owner's script. Written by `in_use.py`; edit with care.
+2:
+  id: usual_only_linear
+  title: linear regression (one weighted formula, giving dollars) on 1 column
+  option: true
+  decided_by: Pranav Jain
+  decided_on: '2026-10-20'
+  why: Totals have to be right for weighing sales against the cost of the discounts, and the error difference could
+    be luck.

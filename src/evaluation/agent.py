@@ -42,6 +42,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # lets `evaluation.*` / `modeling.*` import as a script
 
 from evaluation.metrics import balance, cluster_bootstrap, forecast_coverage, metric, within_campaign_capture  # noqa: E402
+from modeling.model1_evaluation import random_expected_capture  # noqa: E402
 from evaluation.rules import gap_status, route  # noqa: E402
 from modeling.agent import SPEC_PATH as MODELING_SPEC_PATH, file_hash, load_modeling_spec  # noqa: E402
 from modeling.decision_log import DecisionLog, check  # noqa: E402
@@ -89,14 +90,46 @@ def wide(preds: pd.DataFrame) -> pd.DataFrame:
     return base.join(scores).join(chosen).reset_index()
 
 
-def contract(model_id: int, preds: pd.DataFrame, manifest: dict, mspec: dict, passed: list) -> None:
+def no_skill_score(task: str, d: pd.DataFrame) -> float:
+    """The score with no model at all, which anyone understands: mailing the same number of households at random
+    (Model 1: about 20% of redeemers), guessing the same average amount for every household (Model 2), or
+    mailing at random (Model 3: 0 extra buyers by definition)."""
+    if task == "classify":
+        return float(random_expected_capture(d["campaign"], d["label"]))
+    if task == "regress":
+        return float((d["label"] - d["label"].mean()).abs().mean())
+    return 0.0
+
+
+def newest_campaign(d: pd.DataFrame, primary: str, default: str, cfg: dict) -> dict | None:
+    """The owner's model on the newest finished test campaign, against its usual range on the campaigns before it.
+    Only campaigns big enough to mean something count (cfg: size = positives | rows | treated, min_size); the
+    usual range is the earlier campaigns' mean +/- width_sd standard deviations, from at least min_history of them.
+    None when there is too little history to say what is usual."""
+    fn, higher = metric(primary)
+    size_of = {"positives": lambda g: g["label"].sum(), "rows": len, "treated": lambda g: g["treatment"].sum()}[cfg["size"]]
+    rows = [{"campaign": int(c), "end_day": int(g["end_day"].iloc[0]), "size": int(size_of(g)),
+             "score": float(fn(scored_by(g, default)))}
+            for c, g in d.groupby("campaign") if size_of(g) >= cfg["min_size"]]
+    if len(rows) <= cfg["min_history"]:
+        return None
+    rows.sort(key=lambda r: (r["end_day"], r["campaign"]))
+    *history, newest = rows
+    past = np.array([r["score"] for r in history])
+    low, high = past.mean() - cfg["width_sd"] * past.std(ddof=1), past.mean() + cfg["width_sd"] * past.std(ddof=1)
+    worse = newest["score"] < low if higher else newest["score"] > high
+    return {**newest, "usual_low": float(low), "usual_high": float(high), "n_history": len(history),
+            "higher_is_better": higher, "worse_than_usual": bool(worse)}
+
+
+def contract(model_id: int, preds: pd.DataFrame, manifest: dict, mspec: dict, passed: list, processed: Path) -> None:
     keys = ["household_key", "campaign", "candidate_id"]
     check(not preds.duplicated(keys).any(), f"model {model_id}: one prediction per household x test campaign x candidate", passed)
     check(not preds["score"].isna().any(), f"model {model_id}: no blank scores", passed)
     per_row = preds[preds["chosen"]].groupby(["household_key", "campaign"]).size()
     check((per_row == 1).all() and len(per_row) == int(preds["is_default"].sum()),
           f"model {model_id}: exactly one agent choice per household x test campaign", passed)
-    table = pd.read_parquet(ROOT / mspec["input"]["dir"] / mspec["models"][model_id]["table"],
+    table = pd.read_parquet(processed / mspec["models"][model_id]["table"],
                             columns=["campaign", "end_day"]).drop_duplicates().set_index("campaign")["end_day"]
     late = [f["test_campaign"] for f in manifest["folds"]
             if any(table[c] >= f["cutoff_day"] for c in f["train_campaigns"])]
@@ -153,23 +186,30 @@ def calibration(kind: str, cfg: dict, d: pd.DataFrame, default: str) -> dict:
                        f"(need within {cfg['max_abs_error']})"}
 
 
-def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None) -> dict:
+def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None, modeling_dir: Path | None = None,
+                   processed: Path | None = None, out_root: Path | None = None) -> dict:
+    """modeling_dir / processed / out_root default to the folders in the instruction files; the lead agent's
+    replay points them at its own dated folders."""
     t0, passed = time.time(), []
     ecfg, mcfg = spec["models"][model_id], mspec["models"][model_id]
-    in_dir = ROOT / spec["input"]["dir"] / f"model{model_id}"
+    modeling_dir = modeling_dir or ROOT / spec["input"]["dir"]
+    in_dir = modeling_dir / f"model{model_id}"
     preds = pd.read_parquet(in_dir / "predictions.parquet")
     manifest = json.loads((in_dir / "manifest.json").read_text())
     log = DecisionLog("evaluation", model_id, manifest["run_id"])
-    contract(model_id, preds, manifest, mspec, passed)
+    contract(model_id, preds, manifest, mspec, passed, processed or ROOT / mspec["input"]["dir"])
     log.record("EVA-01", f"hand-off from run {manifest['run_id']}: {len(manifest['folds'])} test campaigns",
                "accept hand-off", "rule", "All contract checks passed (see Checks).")
 
-    default, reps, seed = mcfg["default"], spec["bootstrap"]["reps"], spec["bootstrap"]["seed"]
+    # the model in use: the owner's, unless a person chose an improvement idea instead (recorded in the hand-off)
+    default, reps, seed = manifest.get("default", mcfg["default"]), spec["bootstrap"]["reps"], spec["bootstrap"]["seed"]
     d = wide(preds)
     primary = ecfg["primary"]
     facts = {"iteration": manifest["iteration"] if iteration is None else iteration}
 
-    questions = []   # every genuine question goes to a person: (who should answer, the question)
+    # every genuine question goes to a person: (key, who should answer, the question). The key names the kind of
+    # question and stays the same from run to run, so the lead agent can tell a question it already asked from a new one.
+    questions = []
     if mcfg["task"] == "uplift":
         pcfg = mcfg["propensity"]
         share = float(d.loc[d["treatment"] == 1, "in_overlap"].mean())
@@ -182,7 +222,7 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
                    f"Need overlap >= {ecfg['min_overlap_share']:.0%} and every gap <= {pcfg['unusable_above']} for weighted "
                    "uplift numbers to be usable.", evidence={"overlap_share": share, "balance": gaps})
         if facts["comparison_ok"] and gaps[worst] > pcfg["balanced_below"]:
-            questions.append(("team", f"After weighting, mailed and unmailed households still differ ({worst} gap "
+            questions.append(("uplift_balance", "team", f"After weighting, mailed and unmailed households still differ ({worst} gap "
                               f"{gaps[worst]:.2f}; balanced is below {pcfg['balanced_below']}). Uplift numbers below are "
                               "approximate -- is that good enough to act on?"))
 
@@ -203,6 +243,8 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
     facts["stability"] = float(picks.value_counts(normalize=True).iloc[0])
 
     cal = calibration(ecfg["calibration"]["kind"], ecfg["calibration"], d, default)
+    # the same check for every option, so a person choosing between them sees which ones pass
+    cal_by_option = {c: calibration(ecfg["calibration"]["kind"], ecfg["calibration"], d, c) for c in cands}
     facts["calibration_ok"] = cal["ok"]
     log.record("EVA-CAL", cal["summary"], "ok" if cal["ok"] else "not ok", "rule",
                "The Decision Lab adds these numbers up, so their level must match reality.", evidence=cal)
@@ -214,21 +256,34 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
     log.record("EVA-VERDICT", f"verdict for the owner's model: {verdict}", verdict, decided_by, " ".join(reasons),
                evidence={k: v for k, v in facts.items()})
 
+    # Only when no campaign is held back (the lead agent's replay): otherwise the newest campaigns are locked away
+    # and "newest" would really mean the newest open one.
+    newest = (newest_campaign(d, primary, default, ecfg["newest_campaign"])
+              if "newest_campaign" in ecfg and not manifest["locked_campaigns"] else None)
+    if newest and newest["worse_than_usual"]:
+        log.record("EVA-NEW", f"newest campaign {newest['campaign']}: {primary} {newest['score']:.4f}, usual range "
+                   f"{newest['usual_low']:.4f} to {newest['usual_high']:.4f}", "ask the owner", "human_needed",
+                   "The model did worse than usual on the newest campaign; something may have changed.", evidence=newest)
+        questions.append(("worse_than_usual", mcfg["owner"].split(" (")[0],
+                          f"On the newest finished campaign big enough to count ({newest['campaign']}) the model scored {newest['score']:.4f} on "
+                          f"{primary}, outside its usual range of {newest['usual_low']:.4f} to {newest['usual_high']:.4f} "
+                          f"(from {newest['n_history']} earlier campaigns). Has something changed?"))
     questions += open_questions(model_id, mcfg, ecfg, d, default, vs_base, vs_rule, alternatives, cal, in_dir, cands)
     gains = attribution(cands, alternatives)
-    ledger_upsert(ROOT / mspec["output"]["dir"] / "proposal_ledger.csv", ledger_rows(model_id, cands, alternatives, "open"))
-    for who, q in questions:
+    ledger_upsert(modeling_dir / "proposal_ledger.csv", ledger_rows(model_id, cands, alternatives, "open"))
+    for _, who, q in questions:
         log.record("EVA-Q", q, f"ask the {who}", "human_needed", "A question the rules should not settle on their own.")
     extra = {name: metric(name)[0](scored_by(d, default)) for name in [primary] + ecfg["also_report"]}
     # every option's own score on the primary measure, and the simple rule's (random targeting is 0 by definition)
     scores = {c: float(metric(primary)[0](scored_by(d, c))) for c in cands}
     scores["baseline_score"] = (0.0 if mcfg["task"] == "uplift" else float(metric(primary)[0](scored_by(d, "baseline_score"))))
+    scores["random"] = no_skill_score(mcfg["task"], d)
     result = {"model_id": model_id, "verdict": verdict, "decided_by": decided_by, "reasons": reasons,
               "owner_model": default, "primary_metric": primary, "vs_baseline": vs_base, "vs_rule": vs_rule,
               "alternatives": alternatives, "attribution": gains, "candidates": cands,
-              "locked_campaigns": manifest["locked_campaigns"], "agent_choice": agent_choice, "calibration": cal, "facts": facts,
-              "metrics_owner_model": extra, "scores": scores, "questions": [{"who": w, "question": q} for w, q in questions], "checks": passed, "run_id": manifest["run_id"]}
-    out = ROOT / spec["output"]["dir"] / f"model{model_id}"
+              "locked_campaigns": manifest["locked_campaigns"], "agent_choice": agent_choice, "calibration": cal, "calibration_by_option": cal_by_option, "facts": facts,
+              "metrics_owner_model": extra, "scores": scores, "newest_campaign": newest, "questions": [{"key": k, "who": w, "question": q} for k, w, q in questions], "checks": passed, "run_id": manifest["run_id"]}
+    out = (out_root or ROOT / spec["output"]["dir"]) / f"model{model_id}"
     out.mkdir(parents=True, exist_ok=True)
     (out / "verdict.json").write_text(json.dumps(result, indent=2, default=float))
     log.save(out)
@@ -237,31 +292,31 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
     return result
 
 
-def open_questions(model_id, mcfg, ecfg, d, default, vs_base, vs_rule, alternatives, cal, in_dir, cands) -> list[tuple[str, str]]:
+def open_questions(model_id, mcfg, ecfg, d, default, vs_base, vs_rule, alternatives, cal, in_dir, cands) -> list[tuple[str, str, str]]:
     """Everything a person should look at: anything inconclusive, anything that disagrees with the owner,
     any choice the agents made that the team has not signed off, and whatever the Modeling Agent flagged."""
     out = []
     owner = mcfg["owner"].split(" (")[0]
     if vs_base["status"] == "inconclusive":
-        out.append((owner, f"Can't tell whether the model beats {ecfg['baseline_name']}: gap {vs_base['gap']:+.4f}, "
+        out.append(("baseline_inconclusive", owner, f"Can't tell whether the model beats {ecfg['baseline_name']}: gap {vs_base['gap']:+.4f}, "
                     f"range {vs_base['low']:+.4f} to {vs_base['high']:+.4f} includes zero."))
     for c, r in alternatives.items():
         if r["status"] == "pass":
-            out.append((owner, f"Alternative `{c}` ({' + '.join(cands[c]['changes'])} changed) beats the owner's "
+            out.append((f"alternative_beats_owner:{c}", owner, f"Alternative `{c}` ({' + '.join(cands[c]['changes'])} changed) beats the model in use "
                         f"`{default}` by {r['gap']:+.4f} on {ecfg['primary']} (range {r['low']:+.4f} to "
                         f"{r['high']:+.4f}). Adopt it? Confirm on the locked campaigns first (--unlock)."))
     if not cal["ok"]:
-        out.append((owner, f"The model's numbers don't match reality: {cal['summary']}."))
+        out.append(("calibration", owner, f"The model's numbers don't match reality: {cal['summary']}."))
     if mcfg["task"] == "regress" and vs_base["status"] != "pass":
-        out.append((owner, f"{ecfg['baseline_name']} is as good as the model on unseen campaigns; should it be the "
+        out.append(("baseline_as_good", owner, f"{ecfg['baseline_name']} is as good as the model on unseen campaigns; should it be the "
                     "forecast to beat?"))
     if mcfg["task"] == "uplift":
         raw = metric("raw_stratified_qini")[0](scored_by(d, default))
-        out.append((owner, f"Unweighted Qini {raw:+.4f} vs. weighted {vs_base['gap']:+.4f}: the unweighted score mostly "
+        out.append(("uplift_unweighted_qini", owner, f"Unweighted Qini {raw:+.4f} vs. weighted {vs_base['gap']:+.4f}: the unweighted score mostly "
                     f"reflects who got mailed. Against '{ecfg['rule_name']}' the model scores {vs_rule['gap']:+.4f} "
                     f"(range {vs_rule['low']:+.4f} to {vs_rule['high']:+.4f})."))
     if ecfg.get("measure_note"):
-        out.append(("team", ecfg["measure_note"]))
+        out.append(("measure_note", "team", ecfg["measure_note"]))
     # The Modeling Agent's own flags. Its recommendation (MOD-06) is already asked above, with an interval,
     # whenever the evaluation confirms it; otherwise it is asked here with the reason it was not confirmed.
     flagged = json.loads((in_dir / "decisions.json").read_text())
@@ -272,10 +327,10 @@ def open_questions(model_id, mcfg, ecfg, d, default, vs_base, vs_rule, alternati
             pick = r["action"].removeprefix("recommend ").removesuffix(" to the owner")
             if alternatives.get(pick, {}).get("status") == "pass":
                 continue
-            out.append(("team", f"Modeling Agent recommends `{pick}`, but its edge over the owner's model is within "
+            out.append((f"recommendation_unproven:{pick}", "team", f"Modeling Agent recommends `{pick}`, but its edge over the owner's model is within "
                         "noise on the evaluation's interval. Treat it as unproven."))
             continue
-        out.append(("team", f"Modeling Agent ({r['check_id']}): {r['finding']}. {r['rationale']}"))
+        out.append((r["check_id"], "team", f"Modeling Agent ({r['check_id']}): {r['finding']}. {r['rationale']}"))
     return out
 
 
@@ -334,7 +389,7 @@ def unlock_model(model_id: int, spec: dict, mspec: dict) -> dict:
     if not manifest["locked_campaigns"]:
         raise SystemExit(f"[STOP] model {model_id}: no locked campaigns in this hand-off")
     preds = pd.read_parquet(in_dir / "locked_predictions.parquet")
-    d, default, cands = wide(preds), mcfg["default"], manifest["candidates"]
+    d, default, cands = wide(preds), manifest.get("default", mcfg["default"]), manifest["candidates"]
     reps, seed, primary = spec["bootstrap"]["reps"], spec["bootstrap"]["seed"], ecfg["primary"]
     history_path = out / "unlock_history.json"
     history = json.loads(history_path.read_text()) if history_path.exists() else []
@@ -377,13 +432,16 @@ def main() -> None:
     parser.add_argument("--model", default="all", choices=["1", "2", "3", "all"])
     parser.add_argument("--iteration", type=int, default=None, help="override the hand-off's iteration count")
     parser.add_argument("--unlock", action="store_true", help="the final check on the locked campaigns (recorded)")
+    parser.add_argument("--modeling", type=Path, default=None, help="folder with the Modeling Agent's model{n} hand-offs")
+    parser.add_argument("--processed", type=Path, default=None, help="folder with the model tables")
+    parser.add_argument("--out", type=Path, default=None, help="folder for the model{n} verdicts")
     args = parser.parse_args()
     spec, mspec = load_evaluation_spec(), load_modeling_spec()
     for model_id in ([1, 2, 3] if args.model == "all" else [int(args.model)]):
         if args.unlock:
             unlock_model(model_id, spec, mspec)
         else:
-            evaluate_model(model_id, spec, mspec, args.iteration)
+            evaluate_model(model_id, spec, mspec, args.iteration, args.modeling, args.processed, args.out)
 
 
 if __name__ == "__main__":
