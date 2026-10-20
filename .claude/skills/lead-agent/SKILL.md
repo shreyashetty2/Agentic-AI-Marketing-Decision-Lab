@@ -63,7 +63,8 @@ Read `data/processed/lead_agent/run_summary.json`. Its `steps` list each agent's
 "its instructions" = its settings changed -- say which, in plain words), and:
 - the replay step: `as_of` (campaigns finished, running, not started) and the top-level `since_last_replay`
 - modeling: `current_model` (already in plain words), `options`, `trained_on` (campaigns, rows), `leans_on`
-  (column, share, meaning), `ideas_tested` (approved improvement ideas included in this run)
+  (column, share, meaning), `ideas_tested` (approved improvement ideas included in this run), `in_use` (the
+  team's own model, or the idea a person chose instead)
 - evaluation: `facts` (`current_score`, `simple_rule_score`, `vs_simple_rule`, `alternatives`,
   `forecast_check`) and `model_update` (`action`: first_approved / replaced / kept / unchanged / none_approved,
   `reason`, `approved`, `previous`)
@@ -85,7 +86,9 @@ day 640, so I retrained Model 1 on 25 finished campaigns." or "Nothing changed s
 results stand.">
 
 **The model:** <current_model, explained once>, trained on <campaigns> finished campaigns (<rows> rows). It
-relies most on <leans_on meanings, in plain words, with shares>.
+relies most on <leans_on meanings, in plain words, with shares>. <If `in_use` is a chosen idea, not "the team's
+own model": say it is the idea "<title>" that <decided_by> chose on <decided_on> (<why>), and how the team's own
+model compares (it is among the alternatives).>
 
 **How it did:** <current_score> against <simple_rule_score> for the simple rule: <vs_simple_rule in words>.
 <Alternatives: name only those that are "a real difference" (better or worse) in a sentence each; group the
@@ -177,7 +180,11 @@ Want me to run these? Pick any, or say "all".
    (`.venv/bin/python src/evaluation/agent.py --model N --unlock`, result in
    `data/processed/evaluation_agent/modelN/unlock_report.md`); ask before running it.
 7. Switching the model in use to an idea is the decision of the person you are talking to: recommend, say why,
-   ask them (never name someone else). Never edit the models' own scripts.
+   ask them (never name someone else). On a clear yes:
+   `.venv/bin/python src/lead/in_use.py set --model N --idea <id> --by "<their name>" --reason "<why, in their words>"`,
+   then run the model again (section 1) and explain the result with the chosen idea as the model in use. The
+   team's own model stays in as an option, so every summary still compares the two. To go back:
+   `.venv/bin/python src/lead/in_use.py clear --model N`. Nobody's script is edited either way.
 
 ## Answering follow-up questions
 
