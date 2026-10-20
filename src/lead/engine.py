@@ -38,7 +38,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # lets `lead.*` import when run as a script
 from lead.asof import calendar, describe, folder_name  # noqa: E402
-from lead.describe import gap_words, model_words, score_words  # noqa: E402
+from lead.describe import column_meanings, gap_words, model_words, score_words  # noqa: E402
 from lead.rules import RULES_PATH, answered, known_values, load_rules  # noqa: E402
 from lead.surprises import never_seen, unusual_moves  # noqa: E402
 
@@ -176,13 +176,14 @@ def read_modeling(root: Path, step: Step) -> dict:
     task = m["final"].get("task", "classify")
     importances = m["final"].get("importances") or {}
     importances = ast.literal_eval(importances) if isinstance(importances, str) else importances
+    meanings = column_meanings()
     trained_on = m["final"].get("trained_on_campaigns") or []
     trained_on = ast.literal_eval(trained_on) if isinstance(trained_on, str) else trained_on
     return {"produced": [f"tested {len(m['candidates'])} options on {len(m['folds'])} test campaigns"],
             "current_model": model_words(m["candidates"][default], task),
             "options": {c: model_words(cand, task) for c, cand in m["candidates"].items()},
             "trained_on": {"campaigns": len(trained_on), "rows": used},
-            "leans_on": [{"column": c, "share": round(float(v), 3)}
+            "leans_on": [{"column": c, "share": round(float(v), 3), "meaning": meanings.get(c, c)}
                          for c, v in sorted(importances.items(), key=lambda kv: -kv[1])[:3]],
             "handled": "recommends keeping the current model" if rec == default
                        else f"recommends `{rec}` over the current model (the owner decides)",

@@ -1,5 +1,5 @@
 """Tests for the lead agent's plain words (src/lead/describe.py)."""
-from lead.describe import gap_words, model_words, score_words
+from lead.describe import column_meanings, gap_words, model_words, score_words
 
 
 def test_each_kind_of_model_in_plain_words():
@@ -25,3 +25,16 @@ def test_gaps_say_whether_they_are_real():
         "-3.3 points (likely range -5.7 points to -1.1 points: really worse)")
     assert gap_words("within_campaign_capture", {"gap": 0.011, "low": -0.02, "high": 0.027, "status": "inconclusive"}).endswith(
         "could be luck)")
+
+
+def test_every_model_input_has_a_plain_meaning():
+    """Every column any model uses must have a meaning the lead agent can say (from the Feature Agent's spec)."""
+    import yaml
+    from lead.engine import ROOT
+    meanings = column_meanings()
+    assert meanings["coupon_lines_per_week_26w"].startswith("Average weekly receipt lines that used any coupon")
+    spec = yaml.safe_load((ROOT / "src/modeling/modeling_spec.yaml").read_text())
+    from modeling.owners import owner_features
+    for n, model in spec["models"].items():
+        columns = set(owner_features(n)) | {c for cols in model.get("feature_sets", {}).values() for c in cols}
+        assert columns <= set(meanings), f"Model {n}: no plain meaning for {sorted(columns - set(meanings))}"

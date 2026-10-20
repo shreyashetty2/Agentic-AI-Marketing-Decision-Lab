@@ -442,7 +442,7 @@ def test_a_passing_retrain_replaces_the_approved_model(tmp_path):
     u = update_of(run([1], spec, root))
     assert u["action"] == "replaced" and u["previous"]["run_id"] == first["run_id"]
     assert u["approved"]["trained_on"] == {"campaigns": 2, "rows": None}
-    assert u["approved"]["leans_on"][0] == {"column": "a", "share": 0.7}
+    assert u["approved"]["leans_on"][0]["share"] == 0.7
     assert u["approved"]["model"] == "random forest (300 trees, 6 levels deep) on 2 columns"
     assert approved(root)["run_id"] != first["run_id"]
 
@@ -543,7 +543,7 @@ def test_the_summary_carries_the_measured_facts_in_plain_words(tmp_path):
     modeling = next(e for e in s["steps"] if e["step"] == "modeling:model1")
     assert modeling["current_model"] == "random forest (300 trees, 6 levels deep) on 2 columns"
     assert modeling["options"]["alt"].startswith("LightGBM (300 trees built one after another")
-    assert modeling["leans_on"] == [{"column": "a", "share": 0.7}, {"column": "b", "share": 0.3}]
+    assert [(x["column"], x["share"], x["meaning"]) for x in modeling["leans_on"]] == [("a", 0.7, "a"), ("b", 0.3, "b")]
     assert modeling["trained_on"]["campaigns"] == 2
     facts = next(e for e in s["steps"] if e["step"] == "evaluation:model1")["facts"]
     assert facts["current_score"] == "56.0% (redeemers caught in the top 20% of each campaign's list)"

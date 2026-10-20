@@ -4,6 +4,18 @@ The front door explains a run to someone who did not build the system, using onl
 These helpers turn the agents' own records (a candidate's family and settings, a metric's name and value) into
 the words it uses, so every message names models the same way.
 """
+from pathlib import Path
+
+import yaml
+
+FEATURE_SPEC = Path(__file__).resolve().parents[1] / "features/feature_2a_spec.yaml"
+# Inputs that do not come from the Feature Agent's profile columns: the Data Agent's spine (listed in the
+# feature spec without a description) and columns the owners' scripts add.
+DERIVED = {"is_type_a": "Whether the campaign is Type A.", "is_type_b": "Whether the campaign is Type B.",
+           "usual_spend": "What the household usually spends on the campaign's products.",
+           "duration_days": "How many days the campaign runs.",
+           "has_demographics": "Whether the household's age, income and family details are known (for about a third)."}
+
 SCORES = {   # metric -> (what it measures, how to show a value, higher is better)
     "within_campaign_capture": ("redeemers caught in the top 20% of each campaign's list",
                                 lambda v: f"{v:.1%}", True),
@@ -40,3 +52,11 @@ def gap_words(metric: str, comparison: dict) -> str:
     show = GAP.get(metric, lambda v: f"{v:+.4f}")
     verdict = {"pass": "a real difference", "fail": "really worse", "inconclusive": "could be luck"}[comparison["status"]]
     return f"{show(comparison['gap'])} (likely range {show(comparison['low'])} to {show(comparison['high'])}: {verdict})"
+
+
+def column_meanings(spec_path: Path = FEATURE_SPEC) -> dict[str, str]:
+    """Each model input's plain meaning, from the Feature Agent's own spec (plus the few columns the owners'
+    scripts add themselves)."""
+    spec = yaml.safe_load(spec_path.read_text())
+    return {**DERIVED, **{c: v["desc"] for section in ("passthrough", "profile") for c, v in (spec.get(section) or {}).items()
+                          if isinstance(v, dict) and "desc" in v}}
