@@ -5,8 +5,9 @@ own scripts unchanged, reads what each agent wrote, and collects it into one run
 agent's front door explains to a data scientist. Design: docs/agent_design/lead_agent_design.md
 
   - A step runs only if its inputs changed since it last ran (by content), or an output is missing.
-  - A step that fails, a Data Agent HALT, or a NEW question from the Data or Feature Agent stops the run:
-    nothing downstream can be trusted until a person answers it.
+  - A step that fails, a Data Agent HALT, or an open question from the Data or Feature Agent (or the surprise
+    checks) stops the run: nothing downstream can be trusted until a person answers it. A model step that
+    stops only stops that model.
   - A question the team already knows about (known_questions in the spec) never stops a run.
   - Questions from the Modeling and Evaluation Agents come at the end of a run and never stop it.
 
@@ -39,7 +40,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # lets `lead.*` import when run as a script
 from lead.asof import calendar, describe, folder_name  # noqa: E402
 from lead.describe import column_meanings, gap_words, model_words, score_words  # noqa: E402
-from lead.rules import RULES_PATH, answered, known_values, load_rules  # noqa: E402
+from lead.rules import RULES_PATH, answered, load_rules  # noqa: E402
 from lead.surprises import never_seen, unusual_moves  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -116,9 +117,8 @@ def input_words(pattern: str) -> str:
 
 
 def record(step: Step, root: Path, when: str) -> dict:
-    """What a finished step depended on: one hash over all inputs, and one per input to say later which changed."""
-    return {"inputs": fingerprint(root, step.inputs), "parts": {p: fingerprint(root, [p]) for p in step.inputs},
-            "finished_at": when}
+    """What a finished step depended on: one hash per input, so a later run can say which one changed."""
+    return {"parts": {p: fingerprint(root, [p]) for p in step.inputs}, "finished_at": when}
 
 
 def needs_run(step: Step, root: Path, state: dict) -> tuple[bool, str]:
@@ -127,9 +127,11 @@ def needs_run(step: Step, root: Path, state: dict) -> tuple[bool, str]:
     last = state.get("steps", {}).get(step.key)
     if last is None:
         return True, "no record of an earlier run"
-    if last["inputs"] != fingerprint(root, step.inputs):
-        parts = last.get("parts")
-        changed = [p for p in step.inputs if parts is None or parts.get(p) != fingerprint(root, [p])]
+    if "parts" not in last:   # recorded before the engine kept one hash per input: one hash over all of them
+        same = last["inputs"] == fingerprint(root, step.inputs)
+        return (False, "up to date") if same else (True, "its inputs changed since it last ran (which one was not recorded then)")
+    changed = [p for p in step.inputs if last["parts"].get(p) != fingerprint(root, [p])]
+    if changed:
         return True, "changed since it last ran: " + ", ".join(input_words(p) for p in changed)
     return False, "up to date"
 
@@ -265,53 +267,66 @@ def question_id(step: Step, key: str) -> str:
     return f"{step.name}:{'-' if step.model is None else step.model}:{key}"
 
 
-def classify(step: Step, question: dict, spec: dict, state: dict, rules: list[dict] | None = None) -> str:
+def classify(step: Step, question: dict, spec: dict, asked: dict, rules: list[dict] | None = None) -> str:
     """'answered' (a saved rule answers it), 'known' (the team is working on it), 'still_open' (asked in an
-    earlier run), or 'new'."""
+    earlier run: its id is in `asked`), or 'new'."""
     if question_id(step, question["key"]) in answered(rules or []):
         return "answered"
     if any(k["agent"] == step.name and k["key"] == question["key"] for k in spec.get("known_questions", [])):
         return "known"
-    return "still_open" if question_id(step, question["key"]) in state.get("questions", {}) else "new"
+    return "still_open" if question_id(step, question["key"]) in asked else "new"
 
 
-def check_surprises(root: Path, spec: dict, state: dict, day: int | None, rules: list[dict],
-                    plant: str | None) -> tuple[int | None, int, list[dict], list[dict]]:
-    """The surprise checks on the data that arrived since the last run: (since, upto, data questions, feature
-    questions). A replay compares with the previous replay day; a normal run with the last day it checked."""
+def check_surprises(root: Path, spec: dict, state: dict, day: int | None,
+                    plant: str | None) -> tuple[int | None, int, str, list[dict], list[dict]]:
+    """The surprise checks on the data that arrived since the last run: (since, upto, what was checked, data
+    questions, feature questions). A replay compares with the previous replay day; a normal run with the last
+    day it checked. Questions a saved rule answers are filed as answered by the caller, like any other."""
     processed = root / "data/processed"
     if day is None:
         upto = int(pd.read_parquet(processed / "transaction_data.parquet", columns=["DAY"])["DAY"].max())
         since = state.get("checked_through")
+        last = "the last run"
     else:
         upto, since = day, (state.get("last_replay") or {}).get("day")
-        since = since if since is not None and since < day else None     # going back in time: nothing is new
-    data_q = never_seen(processed, since, upto, known_values(rules, "data"), plant)
-    feature_q = unusual_moves(processed, since, upto, spec["checks"]["unusual_moves"], known_values(rules, "features"))
-    return since, upto, data_q, feature_q
+        last = "the last replay"
+    if since is None:
+        return None, upto, "no earlier run to compare with: learning what is normal, nothing to flag", [], []
+    if since >= upto:
+        return None, upto, f"no new data since {last} (day {since}), nothing to check", [], []
+    data_q = never_seen(processed, since, upto, plant)
+    feature_q = unusual_moves(processed, since, upto, spec["checks"]["unusual_moves"])
+    return since, upto, f"new data: day {since} to day {upto}", data_q, feature_q
 
 
 def run(models: list[int], spec: dict, root: Path = ROOT, plan_only: bool = False, day: int | None = None,
         rules_path: Path = RULES_PATH, plant: str | None = None) -> dict:
     """day: replay as if today were that day (None = the full data, as it is). plant: a made-up product
-    department added to the new data, to show the surprise check stopping the run."""
+    department added to the new data, to show the surprise check stopping the run.
+
+    The shared steps (data, features, surprise checks) stop everything when they stop: nothing after them can
+    be trusted. A model step that stops only stops that model; the other models still run."""
     rules = load_rules(rules_path)
     out_dir = root / spec["output_dir"]
     state_path = out_dir / "state.json"
-    state = json.loads(state_path.read_text()) if state_path.exists() else {"steps": {}, "questions": {}}
+    state = json.loads(state_path.read_text()) if state_path.exists() else {}
+    state.setdefault("steps", {})
+    # A replay is a simulation: its questions are kept apart, so a real run's question is never "still open"
+    # because a replay once raised it.
+    asked = state.setdefault("questions" if day is None else "replay_questions", {})
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     summary = {"run_at": now, "models": models, "as_of_day": day, "status": "finished", "stopped_because": None,
                "since_last_replay": None, "steps": [],
                "questions": {"new": [], "still_open": [], "known": [], "answered": []}}
-
     modeling_reports: dict[int, dict] = {}
 
     def stop(reason: str) -> bool:
-        summary.update(status="stopped", stopped_because=reason)
+        summary["status"] = "stopped"
+        summary["stopped_because"] = reason if summary["stopped_because"] is None else f"{summary['stopped_because']}; {reason}"
         return False
 
     def do(step: Step) -> bool:
-        """Run (or skip) one step and read its report. False = the run stops here."""
+        """Run (or skip) one step and read its report. False = this step stopped."""
         go, why = needs_run(step, root, state)
         entry = {"step": step.key, "agent": step.agent, "model": step.model, "ran": go and not plan_only, "why": why}
         summary["steps"].append(entry)
@@ -323,11 +338,15 @@ def run(models: list[int], spec: dict, root: Path = ROOT, plan_only: bool = Fals
                 entry["status"] = "stopped"
                 return stop(f"{step.agent}: {message}")
             state["steps"][step.key] = record(step, root, now)
-        report = READERS[step.name](root, step)
+        try:
+            report = READERS[step.name](root, step)
+            if step.name == "evaluation" and not report["stopped"]:
+                report["model_update"] = update_approved(root, spec, step, report, now, modeling_reports.get(step.model))
+        except Exception as e:   # an agent wrote something the lead agent cannot read: say so, keep the record
+            entry["status"] = "stopped"
+            return stop(f"{step.agent}: could not read what it wrote ({type(e).__name__}: {e})")
         if step.name == "modeling":
             modeling_reports[step.model] = report
-        if step.name == "evaluation" and not report["stopped"]:
-            report["model_update"] = update_approved(root, spec, step, report, now, modeling_reports.get(step.model))
         if "as_of" in report:
             summary["since_last_replay"] = since_last(state.get("last_replay"), report["as_of"])
             state["last_replay"] = {"day": day, "finished": report["as_of"]["finished"]}
@@ -342,12 +361,12 @@ def run(models: list[int], spec: dict, root: Path = ROOT, plan_only: bool = Fals
         question: the run stops until a person answers it."""
         open_here = []
         for q in questions:
-            kind = classify(step, q, spec, state, rules)
+            kind = classify(step, q, spec, asked, rules)
             item = {"id": question_id(step, q["key"]), "agent": step.agent, "model": step.model, **q}
             if kind == "answered":
                 item["rule"] = answered(rules)[item["id"]]["rule"]
             elif kind != "known":
-                item["first_seen"] = state["questions"].setdefault(item["id"], {"first_seen": now})["first_seen"]
+                item["first_seen"] = asked.setdefault(item["id"], {"first_seen": now})["first_seen"]
             summary["questions"][kind].append(item)
             if kind in ("new", "still_open") and step.name in STOPPING_AGENTS:
                 open_here.append(item)
@@ -356,43 +375,45 @@ def run(models: list[int], spec: dict, root: Path = ROOT, plan_only: bool = Fals
                         "a person needs to answer first")
         return True
 
-    def surprises() -> bool:
+    def surprises(shared: list[Step]) -> bool:
         """After the shared steps, before any model: anything new in the data that no rule covers stops the run."""
         if plan_only or "checks" not in spec:
             return True
-        since, upto, data_q, feature_q = check_surprises(root, spec, state, day, rules, plant)
+        since, upto, what, data_q, feature_q = check_surprises(root, spec, state, day, plant)
         summary["steps"].append({"step": "checks", "agent": "Surprise checks", "model": None, "ran": True,
                                  "status": "finished", "why": "after the Feature Agent, before any model",
-                                 "produced": [f"new data: day {since} to day {upto}" if since is not None else
-                                              "no earlier run to compare with: learning what is normal, nothing to flag"],
-                                 "handled": f"{len(data_q) + len(feature_q)} finding(s)"})
-        steps = {s.name: s for s in plan_steps(spec, models, day)[:len(SHARED_STEPS)]}
-        ok = ask(steps["data"], data_q) and ask(steps["features"], feature_q)
+                                 "produced": [what], "handled": f"{len(data_q) + len(feature_q)} finding(s)"})
+        by_name = {s.name: s for s in shared}
+        ok = ask(by_name["data"], data_q) and ask(by_name["features"], feature_q)
         if ok and day is None:
             state["checked_through"] = upto
         return ok
 
-    # The shared steps come first: the replay folder depends on the campaign calendar the Data Agent writes.
-    n_shared = len(SHARED_STEPS)
-    if all(do(step) for step in plan_steps(spec, models, day)[:n_shared]) and surprises():
-        folder = None
-        if day is not None:
-            try:
-                folder = folder_name(calendar(root / "data/processed"), day)
-            except (SystemExit, FileNotFoundError) as e:
-                folder = "unknown_until_the_data_agent_runs" if plan_only else None
-                if not plan_only:
-                    stop(f"Replay: {str(e).removeprefix('[STOP] ')}")
-        if folder is not None or day is None:
-            for step in plan_steps(spec, models, day, folder)[n_shared:]:
-                if not do(step):
-                    break
-
-    if not plan_only:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        state_path.write_text(json.dumps(state, indent=2))
-        (out_dir / "run_summary.json").write_text(json.dumps(summary, indent=2, default=float))
-        (out_dir / "run_summary.md").write_text(render(summary))
+    try:
+        # The shared steps come first: the replay folder depends on the campaign calendar the Data Agent writes.
+        shared = plan_steps(spec, models, day)[:len(SHARED_STEPS)]
+        if all(do(step) for step in shared) and surprises(shared):
+            folder = None
+            if day is not None:
+                try:
+                    folder = folder_name(calendar(root / "data/processed"), day)
+                except (SystemExit, FileNotFoundError) as e:
+                    if plan_only:
+                        folder = "unknown_until_the_data_agent_runs"
+                    else:
+                        stop(f"Replay: {str(e).removeprefix('[STOP] ')}")
+            if folder is not None or day is None:
+                rest = plan_steps(spec, models, day, folder)[len(SHARED_STEPS):]
+                replay_steps = [s for s in rest if s.model is None]
+                if all(do(step) for step in replay_steps):
+                    for model in models:     # each model on its own: one stopping does not stop the others
+                        all(do(step) for step in rest if step.model == model)
+    finally:
+        if not plan_only:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            state_path.write_text(json.dumps(state, indent=2))
+            (out_dir / "run_summary.json").write_text(json.dumps(summary, indent=2, default=float))
+            (out_dir / "run_summary.md").write_text(render(summary))
     return summary
 
 
@@ -410,7 +431,8 @@ def mark_current(spec: dict, root: Path = ROOT) -> list[str]:
     were produced by running the agents by hand; the engine cannot check how they were made."""
     out_dir = root / spec["output_dir"]
     state_path = out_dir / "state.json"
-    state = json.loads(state_path.read_text()) if state_path.exists() else {"steps": {}, "questions": {}}
+    state = json.loads(state_path.read_text()) if state_path.exists() else {}
+    state.setdefault("steps", {})
     marked = []
     for step in plan_steps(spec, [1, 2, 3]):
         if all((root / o).exists() for o in step.outputs):

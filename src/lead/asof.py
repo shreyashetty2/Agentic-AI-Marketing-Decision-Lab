@@ -21,11 +21,13 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 PROCESSED = ROOT / "data/processed"
 MODELS = (1, 2, 3)
-FIRST_TEST_DAY = 412          # the Modeling Agent's first test campaign (modeling_spec.yaml defaults)
+# The Modeling Agent's first test campaign starts on this day; read from its own instructions.
+FIRST_TEST_DAY = yaml.safe_load((ROOT / "src/modeling/modeling_spec.yaml").read_text())["defaults"]["first_test_day"]
 MIN_TEST_CAMPAIGNS = 3        # fewer finished test campaigns than this: nothing meaningful to test on
 
 

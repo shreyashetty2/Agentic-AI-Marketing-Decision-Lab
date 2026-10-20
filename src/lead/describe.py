@@ -16,12 +16,11 @@ DERIVED = {"is_type_a": "Whether the campaign is Type A.", "is_type_b": "Whether
            "duration_days": "How many days the campaign runs.",
            "has_demographics": "Whether the household's age, income and family details are known (for about a third)."}
 
-SCORES = {   # metric -> (what it measures, how to show a value, higher is better)
-    "within_campaign_capture": ("redeemers caught in the top 20% of each campaign's list",
-                                lambda v: f"{v:.1%}", True),
-    "mae": ("average dollar error per household", lambda v: f"${v:.2f}", False),
+SCORES = {   # metric -> (what it measures, how to show a value)
+    "within_campaign_capture": ("redeemers caught in the top 20% of each campaign's list", lambda v: f"{v:.1%}"),
+    "mae": ("average dollar error per household", lambda v: f"${v:.2f}"),
     "ipw_stratified_qini": ("extra buyers per 100 mailed households, compared with mailing at random",
-                            lambda v: f"{100 * v:+.1f}", True),
+                            lambda v: f"{100 * v:+.1f}"),
 }
 GAP = {"within_campaign_capture": lambda v: f"{100 * v:+.1f} points", "mae": lambda v: f"{'+' if v >= 0 else '-'}${abs(v):.2f}",
        "ipw_stratified_qini": lambda v: f"{100 * v:+.1f} per 100"}
@@ -43,7 +42,7 @@ def model_words(candidate: dict, task: str) -> str:
 
 
 def score_words(metric: str, value: float) -> str:
-    what, show, _ = SCORES.get(metric, (metric, lambda v: f"{v:.4f}", True))
+    what, show = SCORES.get(metric, (metric, lambda v: f"{v:.4f}"))
     return f"{show(value)} ({what})"
 
 

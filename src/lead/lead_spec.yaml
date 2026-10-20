@@ -45,15 +45,16 @@ steps:
     agent: Modeling Agent
     runs:
       - src/modeling/agent.py --model {n} --mode forward --processed {tables} --out {models} {modeling_extra}
-    inputs: ["{tables}/model{n}_table.parquet", src/modeling/*.py, src/modeling/modeling_spec.yaml]
+    inputs: ["{tables}/model{n}_table.parquet", src/modeling/*.py, src/modeling/modeling_spec.yaml,
+             src/features/feature_2a_spec.yaml]
     outputs: ["{models}/model{n}/manifest.json"]
 
   evaluation:          # one run per model
     agent: Evaluation Agent
     runs:
       - src/evaluation/agent.py --model {n} --modeling {models} --processed {tables} --out {evals}
-    inputs: ["{models}/model{n}/manifest.json", "{models}/model{n}/predictions.parquet",
-             src/evaluation/*.py, src/evaluation/evaluation_spec.yaml]
+    inputs: ["{models}/model{n}/manifest.json", "{models}/model{n}/predictions.parquet", "{tables}/model{n}_table.parquet",
+             src/evaluation/*.py, src/evaluation/evaluation_spec.yaml, src/modeling/modeling_spec.yaml]
     outputs: ["{evals}/model{n}/verdict.json"]
 
 # Where the model steps read and write. {folder} is the replay folder, named after the day the latest
@@ -64,7 +65,8 @@ folders:
            modeling_extra: ""}
   replay: {tables: "data/processed/lead_agent/replay/{folder}/tables",
            models: "data/processed/lead_agent/replay/{folder}/modeling_agent",
-           evals: "data/processed/lead_agent/replay/{folder}/evaluation_agent", modeling_extra: "--locked 0"}
+           evals: "data/processed/lead_agent/replay/{folder}/evaluation_agent",
+           modeling_extra: "--locked 0 --no-exact-counts"}
 
 # Questions the team already knows about and is working on. They are reported as "still open", never as
 # new, and never stop a run. When the team answers one, it becomes a rule in that agent's own instructions.

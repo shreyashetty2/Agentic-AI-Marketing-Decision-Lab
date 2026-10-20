@@ -9,9 +9,12 @@
    min_relative of the column's level, so tiny moves are never flagged. On our two years no campaign trips it;
    an 80% drop in coupon use would be about 40 times the usual move.
 
+   A column that goes blank for many more households than usual (a feed producing empty values, not zeros) is
+   flagged the same way, on its share of blank rows.
+
 The new data is everything after `since` up to `upto` (days). With no earlier run (since=None) there is
 nothing to compare with: the checks only learn. Each finding is a question {key, who, text}; its key names the
-value or column, so an answered question is never asked again.
+value or column, so the engine can match it to a saved rule and file it as answered.
 """
 from pathlib import Path
 
@@ -19,9 +22,9 @@ import numpy as np
 import pandas as pd
 
 
-def never_seen(processed: Path, since: int | None, upto: int, known: set[str], plant: str | None = None) -> list[dict]:
-    """known: values a person already decided about (the lead agent's rules). plant: add a made-up department to
-    the new data, to test that the check stops the run (said plainly in the question)."""
+def never_seen(processed: Path, since: int | None, upto: int, plant: str | None = None) -> list[dict]:
+    """plant: add a made-up department to the new data, to test that the check stops the run (said plainly in
+    the question)."""
     if since is None or upto <= since:
         return []
     out = []
@@ -34,7 +37,7 @@ def never_seen(processed: Path, since: int | None, upto: int, known: set[str], p
     if plant:
         counts[plant] = 1
     for dept, n in counts.items():
-        if dept in before or f"department:{dept}" in known:
+        if dept in before:
             continue
         planted = " (planted to test this check; not in the real data)" if dept == plant else ""
         out.append({"key": f"department:{dept}", "who": "team",
@@ -45,7 +48,7 @@ def never_seen(processed: Path, since: int | None, upto: int, known: set[str], p
     cal = cal.drop_duplicates("campaign")
     seen_types = set(cal.loc[cal["start_day"] <= since, "campaign_type"])
     for ctype, group in cal[(cal["start_day"] > since) & (cal["start_day"] <= upto)].groupby("campaign_type"):
-        if ctype not in seen_types and f"campaign_type:{ctype}" not in known:
+        if ctype not in seen_types:
             out.append({"key": f"campaign_type:{ctype}", "who": "team",
                         "text": f"A campaign type never seen before started since day {since}: type '{ctype}' "
                                 f"(campaigns {sorted(int(c) for c in group['campaign'])}). The models were only "
@@ -53,33 +56,40 @@ def never_seen(processed: Path, since: int | None, upto: int, known: set[str], p
     return out
 
 
-def unusual_moves(processed: Path, since: int | None, upto: int, cfg: dict, known: set[str]) -> list[dict]:
+def unusual_moves(processed: Path, since: int | None, upto: int, cfg: dict) -> list[dict]:
     """cfg: columns, move_sd, min_relative, min_history (moves needed before 'usual' means anything)."""
     if since is None or upto <= since:
         return []
     cols = cfg["columns"]
     table = pd.read_parquet(processed / "features_household_campaign.parquet", columns=["campaign", "start_day", *cols])
-    means = table.groupby("campaign")[[*cols, "start_day"]].mean().sort_values("start_day")
-    means = means[means["start_day"] <= upto]
-    moves = means[cols].diff()
+    by_campaign = table.groupby("campaign")
+    starts = by_campaign["start_day"].first().sort_values()
+    starts = starts[starts <= upto]
+    means = by_campaign[cols].mean().loc[starts.index]
+    blank = by_campaign[cols].agg(lambda c: c.isna().mean()).loc[starts.index]
     out = []
-    for position, (campaign, row) in enumerate(means.iterrows()):
-        if row["start_day"] <= since or position == 0:
+    for position, campaign in enumerate(starts.index):
+        if starts[campaign] <= since or position < cfg["min_history"] + 1:
             continue
-        past = moves.iloc[1:position]
-        if len(past) < cfg["min_history"]:
-            continue
-        usual = past.std()
-        previous = means.iloc[position - 1]
+        previous = starts.index[position - 1]
         for col in cols:
-            move = row[col] - previous[col]
-            key = f"unusual_move:{col}:campaign{int(campaign)}"
-            relative = abs(move) / abs(previous[col]) if previous[col] else np.inf
-            if abs(move) > cfg["move_sd"] * usual[col] and relative > cfg["min_relative"] and key not in known:
-                out.append({"key": key, "who": "team",
-                            "text": f"The average of {col} moved from {previous[col]:.3f} (campaign "
-                                    f"{int(means.index[position - 1])}) to {row[col]:.3f} (campaign {int(campaign)}), "
-                                    f"{abs(move) / usual[col]:.0f} times its usual move between campaigns "
-                                    f"({usual[col]:.3f}). That usually means a data feed changed, not shoppers. "
-                                    "Is the data for this campaign complete?"})
+            for kind, series, level in (("unusual_move", means[col], abs(means[col].iloc[position - 1])),
+                                        ("unusual_blanks", blank[col], 1.0)):
+                now, before = series.iloc[position], series.iloc[position - 1]
+                usual = series.iloc[:position].diff().iloc[1:].std()
+                move = now - before
+                if pd.isna(now) and not pd.isna(before):          # every household blank: the mean is gone
+                    move, now = np.inf, "blank for every household"
+                if kind == "unusual_blanks" and move <= 0:         # fewer blanks is never a problem
+                    continue
+                if not (abs(move) > cfg["move_sd"] * usual and abs(move) > cfg["min_relative"] * level):
+                    continue
+                times = "" if usual == 0 or np.isinf(move) else f", {abs(move) / usual:.0f} times its usual move between campaigns ({usual:.3f})"
+                what = "share of households with no value for" if kind == "unusual_blanks" else "average of"
+                shown = (lambda v: v if isinstance(v, str) else (f"{v:.1%}" if kind == "unusual_blanks" else f"{v:.3f}"))
+                out.append({"key": f"{kind}:{col}:campaign{int(campaign)}", "who": "team",
+                            "text": f"The {what} {col} went from {shown(before)} (campaign {int(previous)}) to "
+                                    f"{shown(now)} (campaign {int(campaign)}){times}. That usually means a data feed "
+                                    "changed, not shoppers. Is the data for this campaign complete?"})
+                break   # one question per column per campaign
     return out

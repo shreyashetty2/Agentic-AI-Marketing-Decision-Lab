@@ -144,7 +144,8 @@ def test_needs_run_gives_the_reason(tmp_path):
     assert needs_run(step, root, {}) == (True, "an output is missing")
     (root / "out.txt").write_text("x")
     assert needs_run(step, root, {}) == (True, "no record of an earlier run")
-    state = {"steps": {"data": {"inputs": fingerprint(root, ["raw.csv"])}}}
+    from lead.engine import record
+    state = {"steps": {"data": record(step, root, "t")}}
     assert needs_run(step, root, state) == (False, "up to date")
     (root / "raw.csv").write_text("a,b\n9,9\n")
     assert needs_run(step, root, state) == (True, "changed since it last ran: the data it reads (raw.csv)")
@@ -204,12 +205,12 @@ def test_a_data_agent_halt_stops_the_run(tmp_path):
     assert calls(root) == ["data:-"]
 
 
-def test_a_failed_script_stops_the_run_with_its_own_reason(tmp_path):
+def test_a_failed_model_stops_that_model_only(tmp_path):
     root, spec = make_repo(tmp_path, {"fail": "modeling:1"})
     s = run([1, 2], spec, root)
     assert s["status"] == "stopped"
     assert s["stopped_because"] == "Modeling Agent: `fake_agent.py` stopped: [STOP] fake failure for testing"
-    assert calls(root) == ["data:-", "features:-", "modeling:1"]
+    assert calls(root) == ["data:-", "features:-", "modeling:1", "modeling:2", "evaluation:2"]   # Model 2 still runs
     assert "modeling:1" not in json.loads((root / "data/processed/lead_agent/state.json").read_text())["steps"]
 
 
@@ -298,7 +299,7 @@ def test_classify(tmp_path):
     data = Step("data", "Data Agent", None, [], [], [])
     assert classify(data, {"key": "Q7b"}, spec, {}) == "known"
     assert classify(data, {"key": "Q99"}, spec, {}) == "new"
-    assert classify(data, {"key": "Q99"}, spec, {"questions": {"data:-:Q99": {}}}) == "still_open"
+    assert classify(data, {"key": "Q99"}, spec, {"data:-:Q99": {}}) == "still_open"
     evaluation = Step("evaluation", "Evaluation Agent", 1, [], [], [])
     assert classify(evaluation, {"key": "Q7b"}, spec, {}) == "new"      # known for the Data Agent only
 
@@ -520,7 +521,8 @@ def test_once_answered_by_a_rule_the_run_goes_on_and_shows_the_rule(tmp_path):
             "Pranav", rules_path=rules, **drafts)
     s = run([1], spec, root, day=520, rules_path=rules, plant="TEST DEPT")
     assert s["status"] == "finished"
-    assert s["questions"]["new"] == [] and s["questions"]["answered"] == []      # a known value is no longer a finding
+    assert s["questions"]["new"] == []
+    assert s["questions"]["answered"][0]["rule"] == "TEST DEPT is not household spend."
     assert calls(root)[-2:] == ["modeling:1", "evaluation:1"]
 
 
@@ -575,3 +577,97 @@ def test_stepping_back_in_a_replay_never_replaces_the_approved_model(tmp_path):
     u = update_of(run([1], spec, root, day=500))
     assert u["action"] == "kept" and "earlier than the approved version's (day 520)" in u["reason"]
     assert approved(root, replay=True) == later
+
+
+def test_an_old_record_without_per_input_hashes_does_not_guess_which_input_changed(tmp_path):
+    root, _ = make_repo(tmp_path)
+    (root / "code.py").write_text("x = 1")
+    step = Step("data", "Data Agent", None, [], ["raw.csv", "code.py"], ["raw.csv"])
+    old = {"steps": {"data": {"inputs": fingerprint(root, step.inputs)}}}      # the format before "parts"
+    assert needs_run(step, root, old) == (False, "up to date")
+    (root / "code.py").write_text("x = 2")
+    assert needs_run(step, root, old) == (True, "its inputs changed since it last ran (which one was not recorded then)")
+
+
+def test_a_failed_shared_step_stops_every_model(tmp_path):
+    root, spec = make_repo(tmp_path, {"fail": "features:-"})
+    s = run([1, 2], spec, root)
+    assert s["status"] == "stopped" and calls(root) == ["data:-", "features:-"]
+
+
+def test_a_state_file_missing_sections_still_runs(tmp_path):
+    root, spec = make_repo(tmp_path, {"escalate": ["Q99"]})
+    out = root / "data/processed/lead_agent"
+    out.mkdir(parents=True)
+    (out / "state.json").write_text("{}")
+    s = run([1], spec, root)
+    assert s["status"] == "stopped" and (out / "run_summary.json").exists()
+    assert "data:-:Q99" in json.loads((out / "state.json").read_text())["questions"]
+
+
+def test_a_report_the_engine_cannot_read_stops_cleanly_and_keeps_the_record(tmp_path):
+    root, spec = make_repo(tmp_path)
+    run([1], spec, root)
+    (root / "data/processed/modeling_agent/model1/final_model.joblib").unlink()        # needed to approve a model
+    pd.DataFrame({"campaign": range(9)}).to_parquet(root / "data/processed/model1_table.parquet")
+    (root / "fake_agent.py").write_text(FAKE_AGENT.replace('(d / "final_model.joblib").write_bytes', 'str'))
+    s = run([1], spec, root)
+    assert s["status"] == "stopped" and "Evaluation Agent: could not read what it wrote (FileNotFoundError" in s["stopped_because"]
+    state = json.loads((root / "data/processed/lead_agent/state.json").read_text())
+    assert "modeling:model1" in state["steps"]                                         # the finished step is remembered
+
+
+def test_replay_questions_are_kept_apart_from_real_ones(tmp_path):
+    root, spec = make_repo(tmp_path, {"eval_questions": ["calibration"]})
+    run([1], spec, root, day=500)
+    real = run([1], spec, root)
+    assert [q["id"] for q in real["questions"]["new"]] == ["evaluation:1:calibration"]     # not "still open"
+
+
+def test_plan_only_replay_on_a_fresh_repo_runs_and_writes_nothing(tmp_path):
+    root, spec = make_repo(tmp_path)
+    s = run([1], spec, root, plan_only=True, day=500)
+    assert calls(root) == [] and not (root / "data/processed/lead_agent").exists()
+    assert "asof@unknown_until_the_data_agent_runs" in [e["step"] for e in s["steps"]]
+
+
+def test_replay_before_any_campaign_finished_stops_plainly(tmp_path):
+    root, spec = make_repo(tmp_path)
+    s = run([1], spec, root, day=100)
+    assert s["status"] == "stopped"
+    assert s["stopped_because"] == "Replay: no campaign had finished by day 100; the first one ends on day 350"
+    assert (root / "data/processed/lead_agent/run_summary.md").exists()
+
+
+def test_repeating_a_replay_day_says_there_is_nothing_new(tmp_path):
+    root, spec, rules = with_checks(tmp_path)
+    run([1], spec, root, day=500, rules_path=rules)
+    again = run([1], spec, root, day=500, rules_path=rules)
+    checks = next(e for e in again["steps"] if e["step"] == "checks")
+    assert checks["produced"] == ["no new data since the last replay (day 500), nothing to check"]
+
+
+def test_a_normal_run_stopped_by_a_surprise_asks_again_next_time(tmp_path):
+    root, spec, rules = with_checks(tmp_path)
+    p = root / "data/processed"
+    pd.DataFrame({"DAY": range(1, 600), "PRODUCT_ID": 1}).to_parquet(p / "transaction_data.parquet")
+    run([1], spec, root, rules_path=rules)                                             # learns: checked through day 599
+    pd.DataFrame({"DAY": [*range(1, 600), 650], "PRODUCT_ID": [1] * 599 + [2]}).to_parquet(p / "transaction_data.parquet")
+    pd.DataFrame({"PRODUCT_ID": [1, 2], "DEPARTMENT": ["GROCERY", "PHARMACY"]}).to_parquet(p / "product.parquet")
+    first = run([1], spec, root, rules_path=rules)
+    second = run([1], spec, root, rules_path=rules)
+    assert first["status"] == second["status"] == "stopped"
+    assert [q["key"] for q in second["questions"]["still_open"]] == ["department:PHARMACY"]
+    assert json.loads((root / "data/processed/lead_agent/state.json").read_text())["checked_through"] == 599
+
+
+def test_readers_read_the_real_modeling_and_evaluation_files():
+    """Guards against the fake agent's files drifting from the real agents' formats."""
+    from lead.engine import ROOT, load_spec, read_evaluation, read_modeling
+    steps = plan_steps(load_spec(), [1])
+    if not (ROOT / steps[3].outputs[0]).exists():
+        pytest.skip("the Evaluation Agent has not been run on this machine")
+    modeling, evaluation = read_modeling(ROOT, steps[2]), read_evaluation(ROOT, steps[3])
+    assert modeling["stopped"] is None and modeling["current_model"].startswith("random forest")
+    assert {"current_score", "vs_simple_rule", "alternatives", "forecast_check"} <= set(evaluation["facts"])
+    assert evaluation["verdict"] in ("approve", "send_back_modeling", "send_back_features", "human_needed")
