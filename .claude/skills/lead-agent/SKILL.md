@@ -141,6 +141,10 @@ Never save a rule the person did not confirm.
   `model{n}/report.md`) and the Modeling Agent's report (`models` folder, `model{n}/report.md`). Explain, don't
   paste.
 - **What a column means:** `leans_on[].meaning`, or `src/features/feature_2a_spec.yaml`.
+- **"What's the AUC?"** (Model 1): `metrics_owner_model.within_campaign_auc` in that run's
+  `evaluation_agent/model1/verdict.json`. Give the number and one line: the chance that a random household that
+  redeemed is ranked above one that did not, within the same campaign (0.5 = a coin flip, 1.0 = perfect). It is
+  how options are picked; the model is graded on redeemers caught. Not in the summary unless asked.
 - **"Why didn't it retrain?"**: no campaign finished since the last run, so the tables the model learns from are
   the same; retraining would give the same model.
 - **Improving a model** (trying new columns, settings, other kinds of model) is the modeling agent's job: suggest
