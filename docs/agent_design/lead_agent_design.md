@@ -91,6 +91,8 @@ Lead agent  →  one summary to the data scientist
 - **The retrained model passes the Evaluation Agent:** it replaces the current one automatically, and the summary says so.
 - **It fails:** scoring keeps using the last approved model, and the lead agent explains what failed and why.
 - **A different kind of model now scores best** (for example LightGBM instead of the random forest): the lead agent recommends it and asks the data scientist before switching.
+- **Improving a model goes through the lead agent too.** After a send-back it offers to fix the main problem. It thinks the ideas through from what was measured, shows them in plain words, tests the ones the person picks, and says whether each made a real difference.
+- **The person running it can switch the model in use.** On their yes, the chosen idea becomes the model judged and refit from then on (`src/lead/models_in_use.yaml`, with who chose it, when and why), and the team's own model stays in as an option so every summary still compares the two. It can be switched back. Nobody's script is edited.
 
 ## 6. How the lead agent explains things
 
