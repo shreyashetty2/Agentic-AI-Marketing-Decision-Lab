@@ -81,16 +81,19 @@ mailing 20% at random would reach (20%), and more than mailing the households th
 or "Not ready yet. Its dollar forecasts miss by $8.32 per household, against $10.17 if you guessed the same
 average amount for everyone, but added up they come to only 80% of what households really spent.">
 
-**What this run did:** <which steps ran and why, in a sentence: e.g. "Campaigns 18, 21 and 22 finished since
-day 640, so I retrained Model 1 on 25 finished campaigns." or "Nothing changed since the last run, so the
-results stand.">
+**What this run did:** <one sentence, about the data, not the system: e.g. "Campaigns 18, 21 and 22 finished
+since day 640, so I retrained Model 1 on 25 finished campaigns." or "Nothing changed since the last run, so the
+results stand." If steps ran only because the system's own code or settings changed (no new data, no new idea,
+no new choice of model): "No new data. The system was updated, so I re-checked Model 1, and nothing about it
+changed." Never list which settings or files are tracked.>
 
 **The model:** <current_model, explained once>, trained on <campaigns> finished campaigns (<rows> rows). It
 relies most on <leans_on meanings, in plain words, with shares>. <If `in_use` is a chosen idea, not "the team's
 own model": say it is the idea "<title>" that <decided_by> chose on <decided_on> (<why>), and how the team's own
 model compares (it is among the alternatives).>
 
-**How it did:** <current_score> against <simple_rule_score> for the simple rule: <vs_simple_rule in words>.
+**How it did:** <do not repeat the headline's numbers; start with how sure the win over the simple rule is
+(vs_simple_rule: the gap's likely range, and whether it is a real difference)>.
 <Alternatives: name only those that are "a real difference" (better or worse) in a sentence each; group the
 rest as "too close to call".> <forecast_check in plain words>.
 
