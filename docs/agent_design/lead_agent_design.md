@@ -138,7 +138,32 @@ An example, when a different kind of model scores best (illustrative numbers):
   - Front door: Gemini, through Google Cloud's AI service (the Gemini Enterprise Agent Platform, formerly Vertex AI). GCP credits cover Google's own models but not third-party models such as Claude. The brain, which suggests improvements, needs a Gemini option for the same reason.
   - Only the front door and the timer differ from the prototype; the engine is the same.
 
-## 8. Open questions
+## 8. The prototype
+
+**In Claude Code, a data scientist types `/lead-agent run model 1` (or "as of day 660" for a replay) and gets the summary described above.**
+
+- **Where it lives:**
+  - `src/lead/engine.py`: runs the steps listed in `src/lead/lead_spec.yaml`, skips a step whose inputs are unchanged (by content, and it says which input changed when one did), and writes `run_summary.json` and `run_summary.md` to `data/processed/lead_agent/`.
+  - `src/lead/asof.py`: the replay.
+  - `src/lead/surprises.py`: the surprise checks.
+  - `src/lead/rules.py` and `src/lead/lead_rules.yaml`: answers saved as rules.
+  - `src/lead/describe.py`: the plain words for models, scores and columns.
+  - `.claude/skills/lead-agent/SKILL.md`: the front door.
+- **How the replay works:** every feature column is already computed from data before its campaign started, so the replay keeps the campaigns that had finished by the chosen day and leaves out those still running, whose answers are not known yet. The result is the same table a rebuild on data up to that day would give. Teammates' scripts run once, unchanged, on the full data. Each replay folder is named after the day the latest finished campaign ended, so days with no newly finished campaign share a folder and nothing is retrained. The one gap: the Data Agent's outlier cut-offs are learned from all two years; they only set flags, not model inputs.
+- **Decisions made while building:**
+  - **No held-back campaigns in a replay.** The Modeling Agent normally holds back its 5 newest test campaigns for a final check, so repeated idea-testing cannot pass by luck. In a replay every newly finished campaign is fresh, and the newest one is exactly what should be graded, so nothing is held back there.
+  - **The surprise checks belong to the lead agent,** not to the Data and Feature Agents, so no teammate's files change. They run after the Feature Agent and before any model. Only everyday-shopping columns (spend, trips, coupon use, basket size) are watched for unusual moves: more than 4 times the usual campaign-to-campaign move, and at least 10%. Columns tied to the campaign itself, such as spend on its products, change between campaigns by design. On our two years nothing trips the check; an 80% drop in coupon use would be about 40 times the usual move.
+  - **The newest campaign's usual range** counts only campaigns big enough to mean something (Model 1: at least 15 redeemers) and needs at least 5 earlier ones.
+  - **Row counts:** the Modeling Agent checks the full dataset's exact counts only when reproducing the owners' numbers. Otherwise it records the rows it used, and the lead agent checks them against the table it was given.
+  - **A replay never steps backwards:** replaying an earlier day never replaces the approved model with one that knows less.
+  - **A rule never edits another agent's files.** It records the decision and says when that agent's owner needs to apply it.
+- **Not built in the prototype:**
+  - daily rescoring (it is Step 5 and belongs with the Decision Lab)
+  - following a send-back automatically (the summary reports it and what to do next)
+  - building a new column on request
+  - reproducing the owners' numbers on new data (see section 3)
+
+## 9. Open questions
 
 - **What the lead agent hands to the Decision Lab.** This depends on what the Decision Lab does and needs, which is designed next.
 - **Which GCP credits we have.** The terms above are Google's startup and free-trial terms; the exact terms of our credits should be confirmed when the account is set up.

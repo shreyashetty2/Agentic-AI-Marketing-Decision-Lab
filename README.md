@@ -312,6 +312,8 @@ python src/evaluation/agent.py --model all          # Step 4, Evaluation Agent: 
 python src/modeling/brain.py --model 1              # Brain: propose what to try next (needs ANTHROPIC_API_KEY; --manual without)
 python src/modeling/agent.py --model 1 --mode forward --proposals --iteration 2   # test the proposals a person approved
 python src/evaluation/agent.py --model 1 --unlock   # final check, once, on the held-back campaigns
+python src/lead/engine.py --model all               # Lead Agent: run only what is out of date, one summary (in Claude Code: /lead-agent run model 1)
+python src/lead/engine.py --model 1 --as-of 660     # Lead Agent replay: as if today were day 660
 pytest tests                             # unit tests
 python tests/features/acceptance_2a.py   # real-data acceptance checks (slow, ~1 min)
 python tests/features/acceptance_2b.py   # real-data acceptance checks
