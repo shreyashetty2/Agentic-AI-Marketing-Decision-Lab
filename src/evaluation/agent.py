@@ -201,7 +201,8 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
     log.record("EVA-01", f"hand-off from run {manifest['run_id']}: {len(manifest['folds'])} test campaigns",
                "accept hand-off", "rule", "All contract checks passed (see Checks).")
 
-    default, reps, seed = mcfg["default"], spec["bootstrap"]["reps"], spec["bootstrap"]["seed"]
+    # the model in use: the owner's, unless a person chose an improvement idea instead (recorded in the hand-off)
+    default, reps, seed = manifest.get("default", mcfg["default"]), spec["bootstrap"]["reps"], spec["bootstrap"]["seed"]
     d = wide(preds)
     primary = ecfg["primary"]
     facts = {"iteration": manifest["iteration"] if iteration is None else iteration}
@@ -301,7 +302,7 @@ def open_questions(model_id, mcfg, ecfg, d, default, vs_base, vs_rule, alternati
                     f"range {vs_base['low']:+.4f} to {vs_base['high']:+.4f} includes zero."))
     for c, r in alternatives.items():
         if r["status"] == "pass":
-            out.append((f"alternative_beats_owner:{c}", owner, f"Alternative `{c}` ({' + '.join(cands[c]['changes'])} changed) beats the owner's "
+            out.append((f"alternative_beats_owner:{c}", owner, f"Alternative `{c}` ({' + '.join(cands[c]['changes'])} changed) beats the model in use "
                         f"`{default}` by {r['gap']:+.4f} on {ecfg['primary']} (range {r['low']:+.4f} to "
                         f"{r['high']:+.4f}). Adopt it? Confirm on the locked campaigns first (--unlock)."))
     if not cal["ok"]:
@@ -388,7 +389,7 @@ def unlock_model(model_id: int, spec: dict, mspec: dict) -> dict:
     if not manifest["locked_campaigns"]:
         raise SystemExit(f"[STOP] model {model_id}: no locked campaigns in this hand-off")
     preds = pd.read_parquet(in_dir / "locked_predictions.parquet")
-    d, default, cands = wide(preds), mcfg["default"], manifest["candidates"]
+    d, default, cands = wide(preds), manifest.get("default", mcfg["default"]), manifest["candidates"]
     reps, seed, primary = spec["bootstrap"]["reps"], spec["bootstrap"]["seed"], ecfg["primary"]
     history_path = out / "unlock_history.json"
     history = json.loads(history_path.read_text()) if history_path.exists() else []

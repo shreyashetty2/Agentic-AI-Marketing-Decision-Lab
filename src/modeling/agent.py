@@ -484,11 +484,14 @@ def render_report(model_id, mcfg, cands, preds, folds, final, passed, reproduced
 
 
 def run_model(model_id: int, spec: dict, processed: Path, mode: str, iteration: int, use_proposals: bool = False,
-              out_root: Path | None = None, locked: int | None = None, exact_counts: bool = True) -> Path:
+              out_root: Path | None = None, locked: int | None = None, exact_counts: bool = True,
+              in_use: dict | None = None) -> Path:
     """out_root: where the model{n} folder goes (default: the spec's output dir). locked: overrides
     locked_test_campaigns; the lead agent's replay uses 0, since there every newly finished campaign is fresh.
     exact_counts: False for a table that is not the full dataset (the lead agent's replay), whose row counts
-    are not the ones in the instructions; the lead agent checks the rows used against the table instead."""
+    are not the ones in the instructions; the lead agent checks the rows used against the table instead.
+    in_use: an improvement idea a person chose as the model in use (src/lead/models_in_use.yaml). It becomes the
+    default this run is judged and refit on; the owner's model stays in as an option. Forward mode only."""
     t0, passed = time.time(), []
     mcfg = spec["models"][model_id] if locked is None else {**spec["models"][model_id], "locked_test_campaigns": locked}
     run_id = time.strftime("%Y%m%d-%H%M%S")
@@ -497,7 +500,15 @@ def run_model(model_id: int, spec: dict, processed: Path, mode: str, iteration: 
     proposals = load_proposals(out_dir) if use_proposals else None
     if use_proposals:
         check(bool(proposals), f"model {model_id}: proposals.yaml found in {out_dir}", passed)
+    if in_use:
+        check(mode == "forward", f"model {model_id}: a chosen model in use is only run in forward mode", passed)
+        proposals = [p for p in proposals or [] if p["id"] != in_use["id"]] + [{**in_use, "approved": True}]
     table, cands = prepare_table(model_id, mcfg, spec, processed, passed, log, proposals, exact_counts)
+    if in_use:
+        log.record("MOD-10", f"model in use: {in_use.get('title')} (`{in_use['id']}`), chosen by {in_use['decided_by']} "
+                   f"on {in_use['decided_on']}", "use the chosen model", "rule",
+                   f"A person's saved choice (src/lead/models_in_use.yaml); the owner's `{mcfg['default']}` stays in as an option.")
+        mcfg = {**mcfg, "default": in_use["id"]}
     agent = ModelingAgent(model_id, mcfg, spec, table, cands, log)
     reproduced = reproduce(agent, passed) if mode in ("reproduce", "both") else {}
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -518,7 +529,7 @@ def run_model(model_id: int, spec: dict, processed: Path, mode: str, iteration: 
         "spec_hash": file_hash(SPEC_PATH), "table_hash": file_hash(processed / mcfg["table"]),
         "feature_spec_hash": file_hash(ROOT / spec["input"]["feature_spec"]),
         "versions": {"pandas": pd.__version__, "sklearn": sklearn.__version__, "numpy": np.__version__},
-        "default": mcfg["default"], "candidates": cands, "proposals_used": sorted(c for c in cands if cands[c]["source"] == "proposal"),
+        "default": mcfg["default"], "in_use": in_use, "candidates": cands, "proposals_used": sorted(c for c in cands if cands[c]["source"] == "proposal"),
         "locked_campaigns": [f["test_campaign"] for f in folds if f["locked"]],
         "table_rows": len(table), "folds": folds, "final": {k: v for k, v in final.items() if k != "fitted"},
         "checks": passed, "reproduced": {k: v["got"] for k, v in reproduced.items()},
@@ -543,11 +554,14 @@ def main() -> None:
     parser.add_argument("--locked", type=int, default=None, help="override how many latest test campaigns are locked")
     parser.add_argument("--no-exact-counts", action="store_true",
                         help="the table is not the full dataset: skip the instructions' exact row counts")
+    parser.add_argument("--in-use", type=Path, default=None,
+                        help="a YAML of models a person chose to use instead of the owner's (src/lead/models_in_use.yaml)")
     args = parser.parse_args()
     spec = load_modeling_spec()
     for model_id in ([1, 2, 3] if args.model == "all" else [int(args.model)]):
+        chosen = (yaml.safe_load(args.in_use.read_text()) or {}).get(model_id) if args.in_use else None
         run_model(model_id, spec, args.processed, args.mode, args.iteration, args.proposals, args.out, args.locked,
-                  not args.no_exact_counts)
+                  not args.no_exact_counts, chosen)
 
 
 if __name__ == "__main__":
