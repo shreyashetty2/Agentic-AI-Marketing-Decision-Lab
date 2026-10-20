@@ -46,12 +46,16 @@ elif step == "modeling":
     (d / "manifest.json").write_text(json.dumps({"run_id": str(__import__("time").time()), "default": "own", "candidates": {"own": {}, "alt": {}},
                                                  "folds": [1, 2], "final": {"recommended": "own"}}))
     (d / "predictions.parquet").write_bytes(b"preds")
+    (d / "final_model.joblib").write_bytes(b"model trained at " + str(__import__("time").time()).encode())
 elif step == "evaluation":
     d = out / f"model{model}"; d.mkdir(parents=True, exist_ok=True)
     qs = [{"key": k, "who": "team", "question": f"eval question {k}"} for k in sc.get("eval_questions", [])]
-    (d / "verdict.json").write_text(json.dumps({"verdict": "approve", "decided_by": "rule", "reasons": ["EVA-05: fine"],
+    run_id = json.loads((out.parent / "modeling_agent" / f"model{model}/manifest.json").read_text())["run_id"]
+    verdict = sc.get("verdict", "approve")
+    (d / "verdict.json").write_text(json.dumps({"verdict": verdict, "decided_by": "rule", "reasons": [f"EVA: {verdict}"],
                                                 "questions": qs, "scores": {"own": 0.5}, "primary_metric": "m",
-                                                "owner_model": "own"}))
+                                                "owner_model": "own", "run_id": run_id,
+                                                "newest_campaign": {"campaign": 5, "worse_than_usual": sc.get("worse", False)}}))
 '''
 
 
@@ -374,3 +378,85 @@ def test_asof_keeps_only_finished_campaigns(tmp_path):
     assert describe(cal, 490)["folder"] == "ended_by_day_490"
     with pytest.raises(SystemExit, match="no campaign had finished by day 449"):
         folder_name(cal, 449)
+
+
+# ---- which model scoring uses --------------------------------------------------------------------------------
+
+def approved(root: Path, replay: bool = False) -> dict | None:
+    path = root / "data/processed/lead_agent" / ("replay/approved" if replay else "approved") / "model1.json"
+    return json.loads(path.read_text()) if path.exists() else None
+
+
+def update_of(summary: dict) -> dict:
+    return next(e for e in summary["steps"] if e["step"].startswith("evaluation"))["model_update"]
+
+
+def test_an_approved_model_becomes_the_one_scoring_uses(tmp_path):
+    root, spec = make_repo(tmp_path)
+    s = run([1], spec, root)
+    assert update_of(s)["action"] == "first_approved"
+    assert approved(root)["verdict"] == "approve"
+    assert (root / "data/processed/lead_agent/approved/model1_final_model.joblib").exists()
+    assert update_of(run([1], spec, root))["action"] == "unchanged"
+
+
+def test_a_retrained_model_that_fails_keeps_the_last_approved_one(tmp_path):
+    root, spec = make_repo(tmp_path)
+    run([1], spec, root)
+    first = approved(root)
+    set_scenario(root, verdict="send_back_modeling")
+    pd.DataFrame({"campaign": range(9)}).to_parquet(root / "data/processed/model1_table.parquet")   # forces a retrain
+    u = update_of(run([1], spec, root))
+    assert u["action"] == "kept" and "send_back_modeling" in u["reason"]
+    assert approved(root) == first
+
+
+def test_never_approved_says_so(tmp_path):
+    root, spec = make_repo(tmp_path, {"verdict": "human_needed"})
+    u = update_of(run([1], spec, root))
+    assert u["action"] == "none_approved" and u["approved"] is None
+
+
+def test_worse_than_usual_on_the_newest_campaign_keeps_the_last_approved_one(tmp_path):
+    root, spec = make_repo(tmp_path)
+    run([1], spec, root)
+    set_scenario(root, worse=True)
+    pd.DataFrame({"campaign": range(9)}).to_parquet(root / "data/processed/model1_table.parquet")
+    u = update_of(run([1], spec, root))
+    assert u["action"] == "kept" and "worse than usual" in u["reason"]
+
+
+def test_a_passing_retrain_replaces_the_approved_model(tmp_path):
+    root, spec = make_repo(tmp_path)
+    run([1], spec, root)
+    first = approved(root)
+    pd.DataFrame({"campaign": range(9)}).to_parquet(root / "data/processed/model1_table.parquet")
+    u = update_of(run([1], spec, root))
+    assert u["action"] == "replaced" and u["previous"]["run_id"] == first["run_id"]
+    assert approved(root)["run_id"] != first["run_id"]
+
+
+def test_a_replay_never_touches_the_real_approved_model(tmp_path):
+    root, spec = make_repo(tmp_path)
+    run([1], spec, root, day=500)
+    assert approved(root) is None
+    assert approved(root, replay=True)["as_of_day"] == 500
+
+
+def test_the_modeling_agent_must_use_the_table_it_was_given(tmp_path):
+    root, spec = make_repo(tmp_path)
+    run([1], spec, root)
+    manifest = root / "data/processed/modeling_agent/model1/manifest.json"
+    m = json.loads(manifest.read_text())
+    manifest.write_text(json.dumps({**m, "table_rows": 999}))
+    s = run([1], spec, root)
+    assert s["status"] == "stopped"
+    assert s["stopped_because"] == "Modeling Agent: it used 999 rows but the table it was given has 12"
+
+
+def test_stepping_back_in_time_is_said_plainly(tmp_path):
+    root, spec = make_repo(tmp_path)
+    run([1], spec, root, day=520)
+    back = run([1], spec, root, day=500)
+    assert back["since_last_replay"]["went_back_in_time"]
+    assert "This day is earlier than the last replay (day 520)." in render(back)
