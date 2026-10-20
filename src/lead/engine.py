@@ -263,13 +263,18 @@ def read_evaluation(root: Path, step: Step) -> dict:
 
 def update_approved(root: Path, spec: dict, step: Step, report: dict, when: str, modeling: dict | None = None) -> dict:
     """Which model scoring should use. A retrained model replaces the approved one only if the Evaluation Agent
-    approved it and its newest campaign was not worse than usual; otherwise the last approved model stays.
+    approved it -- or its verdict left the decision to a person and that person signed off this exact version
+    (signoffs.json, written by sign_off) -- and its newest campaign was not worse than usual; otherwise the last
+    approved model stays.
     A replay keeps its own record, so a simulation never replaces the real approved model."""
     folder = root / spec["output_dir"] / ("replay/approved" if step.replay else "approved")
     record_path = folder / f"model{step.model}.json"
     previous = json.loads(record_path.read_text()) if record_path.exists() else None
     newest = report.get("newest_campaign") or {}
-    if report["verdict"] != "approve" or newest.get("worse_than_usual"):
+    signoffs_path = root / spec["output_dir"] / "signoffs.json"
+    signoff = (json.loads(signoffs_path.read_text()) if signoffs_path.exists() else {}).get(str(step.model))
+    signed = bool(report["verdict"] == "human_needed" and signoff and signoff["run_id"] == report["run_id"])
+    if (report["verdict"] != "approve" and not signed) or newest.get("worse_than_usual"):
         why = (f"the newest campaign ({newest['campaign']}) scored worse than usual" if report["verdict"] == "approve"
                else f"the Evaluation Agent's verdict is {report['verdict']}: {report['handled']}")
         return {"action": "kept" if previous else "none_approved", "reason": why, "approved": previous}
@@ -293,8 +298,10 @@ def update_approved(root: Path, spec: dict, step: Step, report: dict, when: str,
     folder.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(root / step.folders["models"] / f"model{step.model}/final_model.joblib",
                     folder / f"model{step.model}_final_model.joblib")
+    record["signed_off_by"] = signoff["by"] if signed else None
     record_path.write_text(json.dumps(record, indent=2, default=float))
-    return {"action": "replaced" if previous else "first_approved", "reason": "passed every check",
+    reason = f"signed off by {signoff['by']} ({signoff['reason']})" if signed else "passed every check"
+    return {"action": "replaced" if previous else "first_approved", "reason": reason,
             "approved": record, "previous": previous}
 
 
@@ -458,6 +465,24 @@ def run(models: list[int], spec: dict, root: Path = ROOT, plan_only: bool = Fals
     return summary
 
 
+def sign_off(model: int, by: str, reason: str, spec: dict, root: Path = ROOT) -> dict:
+    """A person approves the current version of a model whose verdict left the decision to a person. It applies to
+    this exact version only: a retrained model needs a new sign-off."""
+    if not by.strip():
+        raise SystemExit("[STOP] a sign-off needs the name of the person who gives it")
+    step = next(s for s in plan_steps(spec, [model], root=root) if s.name == "evaluation")
+    verdict = json.loads((root / step.outputs[0]).read_text())
+    if verdict["verdict"] != "human_needed":
+        raise SystemExit(f"[STOP] Model {model}'s verdict is {verdict['verdict']}, not one a person signs off")
+    path = root / spec["output_dir"] / "signoffs.json"
+    signoffs = json.loads(path.read_text()) if path.exists() else {}
+    signoffs[str(model)] = {"run_id": verdict["run_id"], "by": by, "reason": reason,
+                            "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(signoffs, indent=2))
+    return signoffs[str(model)]
+
+
 def since_last(previous: dict | None, now: dict) -> dict | None:
     """What changed since the previous replay day: which campaigns finished in between."""
     if previous is None:
@@ -526,8 +551,14 @@ def main() -> None:
     parser.add_argument("--plant-department", default=None,
                         help="test the surprise check: add a made-up product department to the new data")
     parser.add_argument("--mark-current", action="store_true", help="record current outputs as up to date")
+    parser.add_argument("--sign-off", nargs=2, metavar=("BY", "REASON"), default=None,
+                        help="a person approves this version of --model, whose verdict left it to a person")
     args = parser.parse_args()
     spec = load_spec()
+    if args.sign_off:
+        s = sign_off(int(args.model), *args.sign_off, spec)
+        print(f"Model {args.model}: this version (run {s['run_id']}) signed off by {s['by']}.")
+        return
     if args.mark_current:
         print("Marked up to date:", ", ".join(mark_current(spec)) or "nothing")
         return

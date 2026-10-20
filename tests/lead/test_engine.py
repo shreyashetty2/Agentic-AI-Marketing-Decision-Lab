@@ -718,3 +718,33 @@ def test_a_retrain_that_gives_the_same_model_is_unchanged_not_replaced(tmp_path)
     pd.DataFrame({"campaign": range(9)}).to_parquet(root / "data/processed/model1_table.parquet")   # forces a retrain
     u = update_of(run([1], spec, root))
     assert u["action"] == "unchanged" and u["reason"].startswith("retrained on the same data")
+
+
+def test_a_person_can_sign_off_a_version_whose_verdict_left_it_to_them(tmp_path):
+    from lead.engine import sign_off
+    root, spec = make_repo(tmp_path, {"verdict": "human_needed"})
+    assert update_of(run([1], spec, root))["action"] == "none_approved"
+    signed = sign_off(1, "Pranav Jain", "totals pass; the accuracy cost could be luck", spec, root)
+    u = update_of(run([1], spec, root))
+    assert u["action"] == "first_approved" and u["reason"].startswith("signed off by Pranav Jain")
+    assert approved(root)["signed_off_by"] == "Pranav Jain" and approved(root)["run_id"] == signed["run_id"]
+
+
+def test_a_sign_off_covers_that_version_only(tmp_path):
+    from lead.engine import sign_off
+    root, spec = make_repo(tmp_path, {"verdict": "human_needed"})
+    run([1], spec, root)
+    sign_off(1, "Pranav", "r", spec, root)
+    pd.DataFrame({"campaign": range(9)}).to_parquet(root / "data/processed/model1_table.parquet")   # retrained
+    set_scenario(root, verdict="human_needed", score=0.6)
+    assert update_of(run([1], spec, root))["action"] == "none_approved"
+
+
+def test_only_a_needs_a_person_verdict_can_be_signed_off(tmp_path):
+    from lead.engine import sign_off
+    root, spec = make_repo(tmp_path, {"verdict": "send_back_modeling"})
+    run([1], spec, root)
+    with pytest.raises(SystemExit, match="not one a person signs off"):
+        sign_off(1, "Pranav", "r", spec, root)
+    with pytest.raises(SystemExit, match="name of the person"):
+        sign_off(1, " ", "r", spec, root)
