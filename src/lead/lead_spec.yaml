@@ -4,7 +4,8 @@
 # Design: docs/agent_design/lead_agent_design.md
 #
 # A step runs again only when its inputs changed since it last ran (file contents, not dates), or when
-# one of its outputs is missing. Paths are relative to the repo root; {n} is the model number.
+# one of its outputs is missing. Paths are relative to the repo root; {n} is the model number, {day} the replay
+# day, and {tables} / {models} / {evals} the folders below.
 
 output_dir: data/processed/lead_agent
 
@@ -32,20 +33,38 @@ steps:
     outputs: [data/processed/model1_table.parquet, data/processed/model2_table.parquet,
               data/processed/model3_table.parquet, data/processed/feature_2b_report.md]
 
+  asof:                # only in a replay (--as-of DAY): the model tables as they would have looked that day
+    agent: Replay
+    runs:
+      - src/lead/asof.py --day {day} --out {tables}
+    inputs: [data/processed/model1_table.parquet, data/processed/model2_table.parquet,
+             data/processed/model3_table.parquet, data/processed/spine_household_campaign.parquet, src/lead/asof.py]
+    outputs: ["{tables}/asof.json"]
+
   modeling:            # one run per model
     agent: Modeling Agent
     runs:
-      - src/modeling/agent.py --model {n} --mode forward
-    inputs: ["data/processed/model{n}_table.parquet", src/modeling/*.py, src/modeling/modeling_spec.yaml]
-    outputs: ["data/processed/modeling_agent/model{n}/manifest.json"]
+      - src/modeling/agent.py --model {n} --mode forward --processed {tables} --out {models} {modeling_extra}
+    inputs: ["{tables}/model{n}_table.parquet", src/modeling/*.py, src/modeling/modeling_spec.yaml]
+    outputs: ["{models}/model{n}/manifest.json"]
 
   evaluation:          # one run per model
     agent: Evaluation Agent
     runs:
-      - src/evaluation/agent.py --model {n}
-    inputs: ["data/processed/modeling_agent/model{n}/manifest.json", "data/processed/modeling_agent/model{n}/predictions.parquet",
+      - src/evaluation/agent.py --model {n} --modeling {models} --processed {tables} --out {evals}
+    inputs: ["{models}/model{n}/manifest.json", "{models}/model{n}/predictions.parquet",
              src/evaluation/*.py, src/evaluation/evaluation_spec.yaml]
-    outputs: ["data/processed/evaluation_agent/model{n}/verdict.json"]
+    outputs: ["{evals}/model{n}/verdict.json"]
+
+# Where the model steps read and write. {folder} is the replay folder, named after the day the latest
+# finished campaign ended (src/lead/asof.py). In a replay no test campaign is locked: every newly finished
+# campaign is fresh, which is what the lock protects in the improvement loop.
+folders:
+  normal: {tables: data/processed, models: data/processed/modeling_agent, evals: data/processed/evaluation_agent,
+           modeling_extra: ""}
+  replay: {tables: "data/processed/lead_agent/replay/{folder}/tables",
+           models: "data/processed/lead_agent/replay/{folder}/modeling_agent",
+           evals: "data/processed/lead_agent/replay/{folder}/evaluation_agent", modeling_extra: "--locked 0"}
 
 # Questions the team already knows about and is working on. They are reported as "still open", never as
 # new, and never stop a run. When the team answers one, it becomes a rule in that agent's own instructions.

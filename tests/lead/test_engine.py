@@ -11,6 +11,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from lead.engine import ROOT as REPO_ROOT
 from lead.engine import (Step, classify, fingerprint, mark_current, needs_run, plan_steps, read_data, render,
                          run)
 
@@ -18,7 +19,10 @@ FAKE_AGENT = r'''
 import json, sys
 from pathlib import Path
 import pandas as pd
-step, model = sys.argv[1], sys.argv[2]
+# campaign calendar: start and end day of each campaign (the replay reads it from the spine)
+CALENDAR = [{"campaign": c, "campaign_type": "B", "start_day": s, "end_day": e}
+            for c, s, e in [(1, 300, 350), (2, 420, 450), (3, 440, 470), (4, 460, 500), (5, 480, 520), (6, 600, 650)]]
+step, model, out = sys.argv[1], sys.argv[2], Path(sys.argv[3]) if len(sys.argv) > 3 else None
 sc = json.loads(Path("scenario.json").read_text())
 calls = Path("calls.txt"); calls.write_text(calls.read_text() + f"{step}:{model}\n" if calls.exists() else f"{step}:{model}\n")
 if sc.get("fail") == f"{step}:{model}":
@@ -33,21 +37,25 @@ if step == "data":
     pd.DataFrame(rows).to_csv(p / "decision_log.csv", index=False)
     c = {k: {"actual": v} for k, v in {"households": 10, "campaigns": 3, "mailed pairs": 6, "mailed pairs with a redemption": 2}.items()}
     (p / "spine_check.json").write_text(json.dumps({"all_pass": True, "checks": c}))
+    pd.DataFrame(CALENDAR).to_parquet(p / "spine_household_campaign.parquet")
 elif step == "features":
     for n in (1, 2, 3):
-        pd.DataFrame({"x": range(n + 4)}).to_parquet(p / f"model{n}_table.parquet")
+        pd.DataFrame({"campaign": [c["campaign"] for c in CALENDAR for _ in range(n + 1)]}).to_parquet(p / f"model{n}_table.parquet")
 elif step == "modeling":
-    d = p / f"modeling_agent/model{model}"; d.mkdir(parents=True, exist_ok=True)
+    d = out / f"model{model}"; d.mkdir(parents=True, exist_ok=True)
     (d / "manifest.json").write_text(json.dumps({"run_id": str(__import__("time").time()), "default": "own", "candidates": {"own": {}, "alt": {}},
                                                  "folds": [1, 2], "final": {"recommended": "own"}}))
     (d / "predictions.parquet").write_bytes(b"preds")
 elif step == "evaluation":
-    d = p / f"evaluation_agent/model{model}"; d.mkdir(parents=True, exist_ok=True)
+    d = out / f"model{model}"; d.mkdir(parents=True, exist_ok=True)
     qs = [{"key": k, "who": "team", "question": f"eval question {k}"} for k in sc.get("eval_questions", [])]
     (d / "verdict.json").write_text(json.dumps({"verdict": "approve", "decided_by": "rule", "reasons": ["EVA-05: fine"],
                                                 "questions": qs, "scores": {"own": 0.5}, "primary_metric": "m",
                                                 "owner_model": "own"}))
 '''
+
+
+ASOF = REPO_ROOT / "src/lead/asof.py"
 
 
 def make_repo(tmp_path: Path, scenario: dict | None = None) -> tuple[Path, dict]:
@@ -62,12 +70,21 @@ def make_repo(tmp_path: Path, scenario: dict | None = None) -> tuple[Path, dict]
             "features": {"agent": "Feature Agent", "runs": ["fake_agent.py features -"],
                          "inputs": ["data/processed/decision_log.csv"],
                          "outputs": ["data/processed/model1_table.parquet"]},
-            "modeling": {"agent": "Modeling Agent", "runs": ["fake_agent.py modeling {n}"],
-                         "inputs": ["data/processed/model{n}_table.parquet"],
-                         "outputs": ["data/processed/modeling_agent/model{n}/manifest.json"]},
-            "evaluation": {"agent": "Evaluation Agent", "runs": ["fake_agent.py evaluation {n}"],
-                           "inputs": ["data/processed/modeling_agent/model{n}/manifest.json"],
-                           "outputs": ["data/processed/evaluation_agent/model{n}/verdict.json"]},
+            "asof": {"agent": "Replay", "runs": [f"{ASOF} --day {{day}} --out {{tables}} --processed data/processed"],
+                     "inputs": ["data/processed/model1_table.parquet"], "outputs": ["{tables}/asof.json"]},
+            "modeling": {"agent": "Modeling Agent", "runs": ["fake_agent.py modeling {n} {models} {modeling_extra}"],
+                         "inputs": ["{tables}/model{n}_table.parquet"],
+                         "outputs": ["{models}/model{n}/manifest.json"]},
+            "evaluation": {"agent": "Evaluation Agent", "runs": ["fake_agent.py evaluation {n} {evals}"],
+                           "inputs": ["{models}/model{n}/manifest.json"],
+                           "outputs": ["{evals}/model{n}/verdict.json"]},
+        },
+        "folders": {
+            "normal": {"tables": "data/processed", "models": "data/processed/modeling_agent",
+                       "evals": "data/processed/evaluation_agent", "modeling_extra": ""},
+            "replay": {"tables": "data/processed/lead_agent/replay/{folder}/tables",
+                       "models": "data/processed/lead_agent/replay/{folder}/modeling_agent",
+                       "evals": "data/processed/lead_agent/replay/{folder}/evaluation_agent", "modeling_extra": "--locked 0"},
         },
         "known_questions": [{"agent": "data", "key": "Q7b", "note": "gas"}],
     }
@@ -90,7 +107,7 @@ def test_plan_steps_runs_shared_steps_once_then_each_model_in_order(tmp_path):
     steps = plan_steps(spec, [2, 3])
     assert [s.key for s in steps] == ["data", "features", "modeling:model2", "evaluation:model2",
                                       "modeling:model3", "evaluation:model3"]
-    assert steps[2].runs == ["fake_agent.py modeling 2"]
+    assert steps[2].runs == ["fake_agent.py modeling 2 data/processed/modeling_agent"]
     assert steps[2].inputs == ["data/processed/model2_table.parquet"]
 
 
@@ -293,3 +310,67 @@ def test_the_real_spec_loads_and_names_files_that_exist():
             assert (ROOT / command.split()[0]).exists(), f"{step.key}: {command} does not exist"
         assert all("{n}" not in p for p in step.inputs + step.outputs + step.runs)
     assert {(k["agent"], k["key"]) for k in spec["known_questions"]} == {("data", "Q7b"), ("data", "Q5-2")}
+
+
+# ---- replay: "as of day X" ----------------------------------------------------------------------------------
+
+def test_replay_runs_the_models_on_that_days_tables(tmp_path):
+    root, spec = make_repo(tmp_path)
+    s = run([1], spec, root, day=500)
+    assert s["status"] == "finished"
+    assert calls(root) == ["data:-", "features:-", "modeling:1", "evaluation:1"]
+    folder = root / "data/processed/lead_agent/replay/ended_by_day_500"
+    assert (folder / "modeling_agent/model1/manifest.json").exists()
+    assert (folder / "evaluation_agent/model1/verdict.json").exists()
+    assert not (root / "data/processed/modeling_agent").exists()          # the normal hand-off is untouched
+    asof = next(e for e in s["steps"] if e["step"].startswith("asof"))
+    assert asof["as_of"]["finished"] == [1, 2, 3, 4] and asof["as_of"]["running"] == [5]
+
+
+def test_replay_passes_the_replay_arguments_to_the_modeling_agent(tmp_path):
+    root, spec = make_repo(tmp_path)
+    steps = plan_steps(spec, [1], day=500, folder="ended_by_day_500")
+    assert [s.key for s in steps] == ["data", "features", "asof@ended_by_day_500", "modeling:model1@ended_by_day_500",
+                                      "evaluation:model1@ended_by_day_500"]
+    assert steps[3].runs == ["fake_agent.py modeling 1 data/processed/lead_agent/replay/ended_by_day_500/modeling_agent "
+                             "--locked 0"]
+
+
+def test_replay_retrains_only_when_a_campaign_has_finished(tmp_path):
+    root, spec = make_repo(tmp_path)
+    run([1], spec, root, day=500)
+    same = run([1], spec, root, day=510)                 # nothing finished between day 500 and 510
+    assert calls(root).count("modeling:1") == 1
+    assert next(e for e in same["steps"] if e["step"].startswith("asof"))["as_of"]["day"] == 510
+    assert same["since_last_replay"] == {"previous_day": 500, "newly_finished": [], "went_back_in_time": False}
+    later = run([1], spec, root, day=520)                # campaign 5 ends on day 520
+    assert calls(root).count("modeling:1") == 2
+    assert later["since_last_replay"]["newly_finished"] == [5]
+    assert "campaigns [5] finished" in render(later)
+
+
+def test_replay_too_early_stops_with_a_plain_reason(tmp_path):
+    root, spec = make_repo(tmp_path)
+    s = run([1], spec, root, day=470)                    # only campaigns 2 and 3 have started after day 412 and ended
+    assert s["status"] == "stopped"
+    assert "only 2 campaign(s)" in s["stopped_because"] and "Replay" in s["stopped_because"]
+
+
+def test_asof_keeps_only_finished_campaigns(tmp_path):
+    from lead.asof import build, describe, folder_name
+    p = tmp_path / "data/processed"
+    p.mkdir(parents=True)
+    cal = pd.DataFrame([{"campaign": c, "campaign_type": "B", "start_day": s, "end_day": e}
+                        for c, s, e in [(1, 420, 450), (2, 430, 460), (3, 440, 470), (4, 445, 490), (5, 600, 650)]])
+    cal.to_parquet(p / "spine_household_campaign.parquet")
+    for n in (1, 2, 3):
+        pd.DataFrame({"campaign": [1, 1, 2, 3, 4, 5], "label": [1, 0, 0, 1, 0, 1]}).to_parquet(p / f"model{n}_table.parquet")
+    info = build(480, tmp_path / "out", p)
+    kept = pd.read_parquet(tmp_path / "out/model1_table.parquet")
+    assert sorted(kept["campaign"].unique()) == [1, 2, 3]          # 4 still running on day 480, 5 not started
+    assert info["running"] == [4] and info["not_started"] == 1
+    assert info["newest_finished"] == [3] and info["newest_end_day"] == 470
+    assert folder_name(cal, 480) == folder_name(cal, 470) == "ended_by_day_470"
+    assert describe(cal, 490)["folder"] == "ended_by_day_490"
+    with pytest.raises(SystemExit, match="no campaign had finished by day 449"):
+        folder_name(cal, 449)
