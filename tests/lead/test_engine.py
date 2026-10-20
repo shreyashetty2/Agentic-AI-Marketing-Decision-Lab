@@ -84,7 +84,7 @@ def make_repo(tmp_path: Path, scenario: dict | None = None) -> tuple[Path, dict]
                          "outputs": ["data/processed/model1_table.parquet"]},
             "asof": {"agent": "Replay", "runs": [f"{ASOF} --day {{day}} --out {{tables}} --processed data/processed"],
                      "inputs": ["data/processed/model1_table.parquet"], "outputs": ["{tables}/asof.json"]},
-            "modeling": {"agent": "Modeling Agent", "runs": ["fake_agent.py modeling {n} {models} {modeling_extra}"],
+            "modeling": {"agent": "Modeling Agent", "runs": ["fake_agent.py modeling {n} {models} {modeling_extra} {proposals}"],
                          "inputs": ["{tables}/model{n}_table.parquet"],
                          "outputs": ["{models}/model{n}/manifest.json"]},
             "evaluation": {"agent": "Evaluation Agent", "runs": ["fake_agent.py evaluation {n} {evals}"],
@@ -681,3 +681,26 @@ def test_an_input_added_to_a_step_is_called_newly_watched_not_changed(tmp_path):
     state = {"steps": {"data": record(before, root, "t")}}
     after = Step("data", "Data Agent", None, [], ["raw.csv", "code.py"], ["raw.csv"])
     assert needs_run(after, root, state) == (True, "newly watched: its code (code.py)")
+
+
+def test_approved_improvement_ideas_are_passed_to_the_modeling_agent(tmp_path):
+    root, spec = make_repo(tmp_path)
+    ideas = root / "data/processed/modeling_agent/model1"
+    ideas.mkdir(parents=True)
+    (ideas / "proposals.yaml").write_text("- {id: r2_p1, round: 2, approved: false}\n- {id: r3_p1, round: 3, approved: false}\n")
+    assert plan_steps(spec, [1], root=root)[2].runs == ["fake_agent.py modeling 1 data/processed/modeling_agent"]
+    (ideas / "proposals.yaml").write_text("- {id: r2_p1, round: 2, approved: true}\n- {id: r3_p1, round: 3, approved: true}\n")
+    assert plan_steps(spec, [1], root=root)[2].runs == [
+        "fake_agent.py modeling 1 data/processed/modeling_agent --proposals --iteration 3"]
+    replay = plan_steps(spec, [1], day=500, folder="f", root=root)[3]
+    assert "--proposals" not in replay.runs[0]                               # a replay never uses them
+
+
+def test_approving_an_idea_makes_the_model_run_again(tmp_path):
+    root, spec = make_repo(tmp_path)
+    spec["steps"]["modeling"]["inputs"].append("{models}/model{n}/proposals.yaml")
+    run([1], spec, root)
+    (root / "data/processed/modeling_agent/model1/proposals.yaml").write_text("- {id: r2_p1, round: 2, approved: true}\n")
+    s = run([1], spec, root)
+    modeling = next(e for e in s["steps"] if e["step"] == "modeling:model1")
+    assert modeling["ran"] and "proposals.yaml" in modeling["why"]

@@ -44,9 +44,9 @@ steps:
   modeling:            # one run per model
     agent: Modeling Agent
     runs:
-      - src/modeling/agent.py --model {n} --mode forward --processed {tables} --out {models} {modeling_extra}
+      - src/modeling/agent.py --model {n} --mode forward --processed {tables} --out {models} {modeling_extra} {proposals}
     inputs: ["{tables}/model{n}_table.parquet", src/modeling/*.py, src/modeling/modeling_spec.yaml,
-             src/features/feature_2a_spec.yaml]
+             src/features/feature_2a_spec.yaml, "{models}/model{n}/proposals.yaml"]
     outputs: ["{models}/model{n}/manifest.json"]
 
   evaluation:          # one run per model
@@ -57,6 +57,9 @@ steps:
              src/evaluation/*.py, src/evaluation/evaluation_spec.yaml, src/modeling/modeling_spec.yaml]
     outputs: ["{evals}/model{n}/verdict.json"]
 
+# {proposals}: in a normal run, the ideas a person approved in {models}/model{n}/proposals.yaml are tested
+# as extra options (--proposals --iteration R, R = the latest round approved); approving one is a change to
+# that file, so the model runs again. A replay never uses them.
 # Where the model steps read and write. {folder} is the replay folder, named after the day the latest
 # finished campaign ended (src/lead/asof.py). In a replay no test campaign is locked: every newly finished
 # campaign is fresh, which is what the lock protects in the improvement loop.

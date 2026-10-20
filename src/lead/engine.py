@@ -73,14 +73,25 @@ def load_spec(path: Path = SPEC_PATH) -> dict:
     return yaml.safe_load(path.read_text())
 
 
-def plan_steps(spec: dict, models: list[int], day: int | None = None, folder: str | None = None) -> list[Step]:
+def proposal_args(root: Path, models_folder: str, model: int | None) -> str:
+    """--proposals --iteration R when a person approved ideas for this model (R = the latest round approved)."""
+    path = root / models_folder / f"model{model}/proposals.yaml"
+    if model is None or not path.exists():
+        return ""
+    rounds = [p.get("round", 2) for p in (yaml.safe_load(path.read_text()) or []) if p.get("approved")]
+    return f"--proposals --iteration {max(rounds)}" if rounds else ""
+
+
+def plan_steps(spec: dict, models: list[int], day: int | None = None, folder: str | None = None,
+               root: Path = ROOT) -> list[Step]:
     """Data and features once, the replay step if replaying, then modeling and evaluation for each model."""
     folders = {k: v.replace("{folder}", folder or "")
                for k, v in spec.get("folders", {}).get("normal" if day is None else "replay", {}).items()}
 
     def make(name: str, model: int | None) -> Step:
         cfg = spec["steps"][name]
-        values = {**folders, "n": "" if model is None else str(model), "day": "" if day is None else str(day)}
+        values = {**folders, "n": "" if model is None else str(model), "day": "" if day is None else str(day),
+                  "proposals": "" if day is not None or "models" not in folders else proposal_args(root, folders["models"], model)}
 
         def fill(text: str) -> str:
             for k, v in values.items():
@@ -201,7 +212,9 @@ def read_modeling(root: Path, step: Step) -> dict:
     trained_on = ast.literal_eval(trained_on) if isinstance(trained_on, str) else trained_on
     return {"produced": [f"tested {len(m['candidates'])} options on {len(m['folds'])} test campaigns"],
             "current_model": model_words(m["candidates"][default], task),
-            "options": {c: model_words(cand, task) for c, cand in m["candidates"].items()},
+            "options": {c: (f"{cand['title']} (an idea you approved): " if cand.get("title") else "") + model_words(cand, task)
+                        for c, cand in m["candidates"].items()},
+            "ideas_tested": m.get("proposals_used", []),
             "trained_on": {"campaigns": len(trained_on), "rows": used},
             "leans_on": [{"column": c, "share": round(float(v), 3), "meaning": meanings.get(c, c)}
                          for c, v in sorted(importances.items(), key=lambda kv: -kv[1])[:3]],
@@ -394,7 +407,7 @@ def run(models: list[int], spec: dict, root: Path = ROOT, plan_only: bool = Fals
 
     try:
         # The shared steps come first: the replay folder depends on the campaign calendar the Data Agent writes.
-        shared = plan_steps(spec, models, day)[:len(SHARED_STEPS)]
+        shared = plan_steps(spec, models, day, root=root)[:len(SHARED_STEPS)]
         if all(do(step) for step in shared) and surprises(shared):
             folder = None
             if day is not None:
@@ -406,7 +419,7 @@ def run(models: list[int], spec: dict, root: Path = ROOT, plan_only: bool = Fals
                     else:
                         stop(f"Replay: {str(e).removeprefix('[STOP] ')}")
             if folder is not None or day is None:
-                rest = plan_steps(spec, models, day, folder)[len(SHARED_STEPS):]
+                rest = plan_steps(spec, models, day, folder, root)[len(SHARED_STEPS):]
                 replay_steps = [s for s in rest if s.model is None]
                 if all(do(step) for step in replay_steps):
                     for model in models:     # each model on its own: one stopping does not stop the others
@@ -437,7 +450,7 @@ def mark_current(spec: dict, root: Path = ROOT) -> list[str]:
     state = json.loads(state_path.read_text()) if state_path.exists() else {}
     state.setdefault("steps", {})
     marked = []
-    for step in plan_steps(spec, [1, 2, 3]):
+    for step in plan_steps(spec, [1, 2, 3], root=root):
         if all((root / o).exists() for o in step.outputs):
             state["steps"][step.key] = record(step, root, "marked current")
             marked.append(step.key)

@@ -115,7 +115,7 @@ def validate(p: dict, ctx: dict) -> tuple[str, str, dict | None]:
     params = {**start, **given}
 
     cand = {"source": "proposal", "family": family, "params": params, "features": features,
-            "complexity": COMPLEXITY[family], "proposal_id": p["id"]}
+            "complexity": COMPLEXITY[family], "proposal_id": p["id"], "title": p.get("title")}
     cand["changes"] = changes(cand, default)
     if not cand["changes"]:
         return "rejected", "this is the owner's model unchanged", None
