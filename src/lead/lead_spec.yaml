@@ -1,0 +1,54 @@
+# Lead Agent: instruction document.
+# The engine (src/lead/engine.py) reads this file: which steps exist, in what order, what each one runs,
+# which files it depends on, and which open questions the team already knows about.
+# Design: docs/agent_design/lead_agent_design.md
+#
+# A step runs again only when its inputs changed since it last ran (file contents, not dates), or when
+# one of its outputs is missing. Paths are relative to the repo root; {n} is the model number.
+
+output_dir: data/processed/lead_agent
+
+steps:
+  data:
+    agent: Data Agent
+    runs:
+      - src/preprocessing/ingest.py
+      - src/preprocessing/build_spine.py
+      - src/preprocessing/check_integrity.py --skip-causal
+      - src/preprocessing/outlier_rules.py
+      - src/preprocessing/apply_decisions.py
+      - src/preprocessing/make_report.py
+    inputs: [data/raw/*.csv, src/preprocessing/*.py]
+    outputs: [data/processed/decision_log.csv, data/processed/spine_check.json]
+
+  features:
+    agent: Feature Agent
+    runs:
+      - src/features/build_2a.py --processed data/processed --causal data/raw/causal_data.csv
+      - src/features/build_2b.py --processed data/processed
+    inputs: [data/processed/spine_household_campaign.parquet, data/processed/transaction_data.parquet,
+             data/processed/coupon.parquet, data/processed/coupon_redempt.parquet, data/processed/product.parquet,
+             data/processed/hh_demographic.parquet, data/raw/causal_data.csv, src/features/*.py, src/features/*.yaml]
+    outputs: [data/processed/model1_table.parquet, data/processed/model2_table.parquet,
+              data/processed/model3_table.parquet, data/processed/feature_2b_report.md]
+
+  modeling:            # one run per model
+    agent: Modeling Agent
+    runs:
+      - src/modeling/agent.py --model {n} --mode forward
+    inputs: ["data/processed/model{n}_table.parquet", src/modeling/*.py, src/modeling/modeling_spec.yaml]
+    outputs: ["data/processed/modeling_agent/model{n}/manifest.json"]
+
+  evaluation:          # one run per model
+    agent: Evaluation Agent
+    runs:
+      - src/evaluation/agent.py --model {n}
+    inputs: ["data/processed/modeling_agent/model{n}/manifest.json", "data/processed/modeling_agent/model{n}/predictions.parquet",
+             src/evaluation/*.py, src/evaluation/evaluation_spec.yaml]
+    outputs: ["data/processed/evaluation_agent/model{n}/verdict.json"]
+
+# Questions the team already knows about and is working on. They are reported as "still open", never as
+# new, and never stop a run. When the team answers one, it becomes a rule in that agent's own instructions.
+known_questions:
+  - {agent: data, key: Q7b, note: "Whether gas and miscellaneous lines count as household spend (Oct 16 meeting)"}
+  - {agent: data, key: Q5-2, note: "Rows with no quantity but money recorded (Oct 16 meeting)"}
