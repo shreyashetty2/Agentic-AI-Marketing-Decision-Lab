@@ -298,7 +298,7 @@ def test_classify(tmp_path):
 def test_render_says_none_when_there_are_no_questions(tmp_path):
     root, spec = make_repo(tmp_path)
     md = render(run([1], spec, root))
-    assert md.count("- none") == 3
+    assert md.count("- none") == 4
 
 
 # ---- the real instruction file ------------------------------------------------------------------------------
@@ -460,3 +460,67 @@ def test_stepping_back_in_time_is_said_plainly(tmp_path):
     back = run([1], spec, root, day=500)
     assert back["since_last_replay"]["went_back_in_time"]
     assert "This day is earlier than the last replay (day 520)." in render(back)
+
+
+# ---- surprises and rules, end to end ------------------------------------------------------------------------
+
+def with_checks(tmp_path):
+    """A repo whose engine runs the surprise checks: shopping data with steady columns."""
+    root, spec = make_repo(tmp_path)
+    spec["checks"] = {"unusual_moves": {"columns": ["spend"], "move_sd": 4, "min_relative": 0.1, "min_history": 2}}
+    p = root / "data/processed"
+    p.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({"DAY": range(1, 700), "PRODUCT_ID": 1}).to_parquet(p / "transaction_data.parquet")
+    pd.DataFrame({"PRODUCT_ID": [1], "DEPARTMENT": ["GROCERY"]}).to_parquet(p / "product.parquet")
+    pd.DataFrame([{"campaign": c, "start_day": s, "spend": 30.0 + 0.1 * c} for c, s in
+                  [(1, 300), (2, 420), (3, 440), (4, 460), (5, 480), (6, 600)]]).to_parquet(p / "features_household_campaign.parquet")
+    return root, spec, root / "rules.yaml"
+
+
+def test_the_first_run_only_learns_and_later_runs_check_the_new_data(tmp_path):
+    root, spec, rules = with_checks(tmp_path)
+    first = run([1], spec, root, day=500, rules_path=rules)
+    checks = next(e for e in first["steps"] if e["step"] == "checks")
+    assert "learning what is normal" in checks["produced"][0]
+    second = run([1], spec, root, day=520, rules_path=rules)
+    assert next(e for e in second["steps"] if e["step"] == "checks")["produced"] == ["new data: day 500 to day 520"]
+    assert second["status"] == "finished"
+
+
+def test_a_planted_department_stops_the_run_before_any_model(tmp_path):
+    root, spec, rules = with_checks(tmp_path)
+    run([1], spec, root, day=500, rules_path=rules)
+    n = calls(root).count("modeling:1")
+    s = run([1], spec, root, day=520, rules_path=rules, plant="TEST DEPT")
+    assert s["status"] == "stopped" and "Data Agent raised 1 question" in s["stopped_because"]
+    assert [q["id"] for q in s["questions"]["new"]] == ["data:-:department:TEST DEPT"]
+    assert calls(root).count("modeling:1") == n                       # no model trained on the surprise
+    again = run([1], spec, root, day=520, rules_path=rules, plant="TEST DEPT")
+    assert again["status"] == "stopped" and [q["id"] for q in again["questions"]["still_open"]] == ["data:-:department:TEST DEPT"]
+
+
+def test_once_answered_by_a_rule_the_run_goes_on_and_shows_the_rule(tmp_path):
+    from lead.rules import approve, propose
+    root, spec, rules = with_checks(tmp_path)
+    run([1], spec, root, day=500, rules_path=rules)
+    run([1], spec, root, day=520, rules_path=rules, plant="TEST DEPT")
+    drafts = {"drafts_path": root / "drafts.json"}
+    approve(propose("data:-:department:TEST DEPT", "set it apart", "TEST DEPT is not household spend.", **drafts),
+            "Pranav", rules_path=rules, **drafts)
+    s = run([1], spec, root, day=520, rules_path=rules, plant="TEST DEPT")
+    assert s["status"] == "finished"
+    assert s["questions"]["new"] == [] and s["questions"]["answered"] == []      # a known value is no longer a finding
+    assert calls(root)[-2:] == ["modeling:1", "evaluation:1"]
+
+
+def test_an_answered_agent_question_is_reported_with_its_rule(tmp_path):
+    from lead.rules import approve, propose
+    root, spec = make_repo(tmp_path, {"eval_questions": ["measure_note"]})
+    rules = root / "rules.yaml"
+    drafts = {"drafts_path": root / "drafts.json"}
+    approve(propose("evaluation:1:measure_note", "yes", "The team accepts choosing by AUC.", **drafts),
+            "Pranav", rules_path=rules, **drafts)
+    s = run([1], spec, root, rules_path=rules)
+    assert s["questions"]["new"] == []
+    assert s["questions"]["answered"][0]["rule"] == "The team accepts choosing by AUC."
+    assert "Rule: The team accepts choosing by AUC." in render(s)

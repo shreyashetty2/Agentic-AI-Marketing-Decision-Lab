@@ -71,3 +71,14 @@ folders:
 known_questions:
   - {agent: data, key: Q7b, note: "Whether gas and miscellaneous lines count as household spend (Oct 16 meeting)"}
   - {agent: data, key: Q5-2, note: "Rows with no quantity but money recorded (Oct 16 meeting)"}
+
+# Surprise checks (src/lead/surprises.py), run after the Feature Agent and before any model. Only the
+# everyday-shopping columns are watched: they should stay steady unless a data feed breaks. Columns tied to
+# the campaign itself (its products, past campaign counts) change between campaigns by design.
+checks:
+  unusual_moves:
+    columns: [spend_per_week_8w, spend_per_week_26w, trips_per_week_8w, trips_per_week_26w, days_since_last_trip,
+              avg_basket_value_26w, n_departments_26w, coupon_lines_per_week_26w, share_spend_on_discount_26w]
+    move_sd: 4            # flag a move more than 4x the usual campaign-to-campaign move...
+    min_relative: 0.10    # ...and at least 10% of the column's level
+    min_history: 5        # moves needed before "usual" means anything

@@ -37,6 +37,8 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # lets `lead.*` import when run as a script
 from lead.asof import calendar, describe, folder_name  # noqa: E402
+from lead.rules import RULES_PATH, answered, known_values, load_rules  # noqa: E402
+from lead.surprises import never_seen, unusual_moves  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC_PATH = Path(__file__).with_name("lead_spec.yaml")
@@ -220,21 +222,44 @@ def question_id(step: Step, key: str) -> str:
     return f"{step.name}:{'-' if step.model is None else step.model}:{key}"
 
 
-def classify(step: Step, question: dict, spec: dict, state: dict) -> str:
-    """'known' (the team is working on it), 'still_open' (asked in an earlier run), or 'new'."""
+def classify(step: Step, question: dict, spec: dict, state: dict, rules: list[dict] | None = None) -> str:
+    """'answered' (a saved rule answers it), 'known' (the team is working on it), 'still_open' (asked in an
+    earlier run), or 'new'."""
+    if question_id(step, question["key"]) in answered(rules or []):
+        return "answered"
     if any(k["agent"] == step.name and k["key"] == question["key"] for k in spec.get("known_questions", [])):
         return "known"
     return "still_open" if question_id(step, question["key"]) in state.get("questions", {}) else "new"
 
 
-def run(models: list[int], spec: dict, root: Path = ROOT, plan_only: bool = False, day: int | None = None) -> dict:
-    """day: replay as if today were that day (None = the full data, as it is)."""
+def check_surprises(root: Path, spec: dict, state: dict, day: int | None, rules: list[dict],
+                    plant: str | None) -> tuple[int | None, int, list[dict], list[dict]]:
+    """The surprise checks on the data that arrived since the last run: (since, upto, data questions, feature
+    questions). A replay compares with the previous replay day; a normal run with the last day it checked."""
+    processed = root / "data/processed"
+    if day is None:
+        upto = int(pd.read_parquet(processed / "transaction_data.parquet", columns=["DAY"])["DAY"].max())
+        since = state.get("checked_through")
+    else:
+        upto, since = day, (state.get("last_replay") or {}).get("day")
+        since = since if since is not None and since < day else None     # going back in time: nothing is new
+    data_q = never_seen(processed, since, upto, known_values(rules, "data"), plant)
+    feature_q = unusual_moves(processed, since, upto, spec["checks"]["unusual_moves"], known_values(rules, "features"))
+    return since, upto, data_q, feature_q
+
+
+def run(models: list[int], spec: dict, root: Path = ROOT, plan_only: bool = False, day: int | None = None,
+        rules_path: Path = RULES_PATH, plant: str | None = None) -> dict:
+    """day: replay as if today were that day (None = the full data, as it is). plant: a made-up product
+    department added to the new data, to show the surprise check stopping the run."""
+    rules = load_rules(rules_path)
     out_dir = root / spec["output_dir"]
     state_path = out_dir / "state.json"
     state = json.loads(state_path.read_text()) if state_path.exists() else {"steps": {}, "questions": {}}
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     summary = {"run_at": now, "models": models, "as_of_day": day, "status": "finished", "stopped_because": None,
-               "since_last_replay": None, "steps": [], "questions": {"new": [], "still_open": [], "known": []}}
+               "since_last_replay": None, "steps": [],
+               "questions": {"new": [], "still_open": [], "known": [], "answered": []}}
 
     def stop(reason: str) -> bool:
         summary.update(status="stopped", stopped_because=reason)
@@ -260,25 +285,49 @@ def run(models: list[int], spec: dict, root: Path = ROOT, plan_only: bool = Fals
             summary["since_last_replay"] = since_last(state.get("last_replay"), report["as_of"])
             state["last_replay"] = {"day": day, "finished": report["as_of"]["finished"]}
         entry.update({k: v for k, v in report.items() if k != "questions"}, status="stopped" if report["stopped"] else "finished")
-        new_here = []
-        for q in report["questions"]:
-            kind = classify(step, q, spec, state)
+        if report["stopped"]:
+            ask(step, report["questions"])
+            return stop(f"{step.agent}: {report['stopped']}")
+        return ask(step, report["questions"])
+
+    def ask(step: Step, questions: list[dict]) -> bool:
+        """File each question as answered / known / still open / new. False = an open Data or Feature Agent
+        question: the run stops until a person answers it."""
+        open_here = []
+        for q in questions:
+            kind = classify(step, q, spec, state, rules)
             item = {"id": question_id(step, q["key"]), "agent": step.agent, "model": step.model, **q}
-            if kind != "known":
+            if kind == "answered":
+                item["rule"] = answered(rules)[item["id"]]["rule"]
+            elif kind != "known":
                 item["first_seen"] = state["questions"].setdefault(item["id"], {"first_seen": now})["first_seen"]
             summary["questions"][kind].append(item)
-            if kind != "known" and step.name in STOPPING_AGENTS:
-                new_here.append(item)
-        if report["stopped"]:
-            return stop(f"{step.agent}: {report['stopped']}")
-        if new_here:
-            return stop(f"{step.agent} raised {len(new_here)} question(s) its rules do not cover; "
+            if kind in ("new", "still_open") and step.name in STOPPING_AGENTS:
+                open_here.append(item)
+        if open_here:
+            return stop(f"{step.agent} raised {len(open_here)} question(s) its rules do not cover; "
                         "a person needs to answer first")
         return True
 
+    def surprises() -> bool:
+        """After the shared steps, before any model: anything new in the data that no rule covers stops the run."""
+        if plan_only or "checks" not in spec:
+            return True
+        since, upto, data_q, feature_q = check_surprises(root, spec, state, day, rules, plant)
+        summary["steps"].append({"step": "checks", "agent": "Surprise checks", "model": None, "ran": True,
+                                 "status": "finished", "why": "after the Feature Agent, before any model",
+                                 "produced": [f"new data: day {since} to day {upto}" if since is not None else
+                                              "no earlier run to compare with: learning what is normal, nothing to flag"],
+                                 "handled": f"{len(data_q) + len(feature_q)} finding(s)"})
+        steps = {s.name: s for s in plan_steps(spec, models, day)[:len(SHARED_STEPS)]}
+        ok = ask(steps["data"], data_q) and ask(steps["features"], feature_q)
+        if ok and day is None:
+            state["checked_through"] = upto
+        return ok
+
     # The shared steps come first: the replay folder depends on the campaign calendar the Data Agent writes.
     n_shared = len(SHARED_STEPS)
-    if all(do(step) for step in plan_steps(spec, models, day)[:n_shared]):
+    if all(do(step) for step in plan_steps(spec, models, day)[:n_shared]) and surprises():
         folder = None
         if day is not None:
             try:
@@ -351,10 +400,11 @@ def render(s: dict) -> str:
             u = e["model_update"]
             lines.append(f"  - model used for scoring: {u['action'].replace('_', ' ')} ({u['reason']})")
     for kind, title in [("new", "New questions"), ("still_open", "Still open from earlier runs"),
-                        ("known", "Known to the team, being worked on")]:
+                        ("known", "Known to the team, being worked on"), ("answered", "Answered by a saved rule")]:
         items = s["questions"][kind]
         lines += ["", f"## {title}", ""] + ([f"- ({q['agent']}{'' if q['model'] is None else ', Model ' + str(q['model'])}, "
-                                              f"for {q['who']}) {q['text']}" for q in items] or ["- none"])
+                                              f"for {q['who']}) {q['text']}" + (f" Rule: {q['rule']}" if q.get("rule") else "")
+                                              for q in items] or ["- none"])
     return "\n".join(lines) + "\n"
 
 
@@ -363,6 +413,8 @@ def main() -> None:
     parser.add_argument("--model", default="all", choices=["1", "2", "3", "all"])
     parser.add_argument("--plan", action="store_true", help="only say what would run, and why")
     parser.add_argument("--as-of", type=int, default=None, help="replay: run as if today were this day")
+    parser.add_argument("--plant-department", default=None,
+                        help="test the surprise check: add a made-up product department to the new data")
     parser.add_argument("--mark-current", action="store_true", help="record current outputs as up to date")
     args = parser.parse_args()
     spec = load_spec()
@@ -370,7 +422,7 @@ def main() -> None:
         print("Marked up to date:", ", ".join(mark_current(spec)) or "nothing")
         return
     models = [1, 2, 3] if args.model == "all" else [int(args.model)]
-    summary = run(models, spec, plan_only=args.plan, day=args.as_of)
+    summary = run(models, spec, plan_only=args.plan, day=args.as_of, plant=args.plant_department)
     print(render(summary))
 
 
