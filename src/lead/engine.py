@@ -220,6 +220,8 @@ def read_evaluation(root: Path, step: Step) -> dict:
              "forecast_check": v["calibration"]["summary"] + (" -- passes" if v["calibration"]["ok"] else " -- fails")}
     if "baseline_score" in v["scores"]:
         facts["simple_rule_score"] = score_words(metric, v["scores"]["baseline_score"])
+    if "random" in v["scores"]:
+        facts["no_model_score"] = score_words(metric, v["scores"]["random"])
     return {"facts": facts,"produced": [f"verdict: {v['verdict']} (decided by {v['decided_by']})"],
             "handled": v["reasons"][0] if v["reasons"] else None,
             "questions": [{"key": q["key"], "who": q["who"], "text": q["question"]} for q in v["questions"]],

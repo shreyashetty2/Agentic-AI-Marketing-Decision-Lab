@@ -42,6 +42,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # lets `evaluation.*` / `modeling.*` import as a script
 
 from evaluation.metrics import balance, cluster_bootstrap, forecast_coverage, metric, within_campaign_capture  # noqa: E402
+from modeling.model1_evaluation import random_expected_capture  # noqa: E402
 from evaluation.rules import gap_status, route  # noqa: E402
 from modeling.agent import SPEC_PATH as MODELING_SPEC_PATH, file_hash, load_modeling_spec  # noqa: E402
 from modeling.decision_log import DecisionLog, check  # noqa: E402
@@ -87,6 +88,17 @@ def wide(preds: pd.DataFrame) -> pd.DataFrame:
     scores = preds.pivot_table(index=keys, columns="candidate_id", values="score", aggfunc="first")
     chosen = preds[preds["chosen"]].set_index(keys)["score"].rename("agent_choice")
     return base.join(scores).join(chosen).reset_index()
+
+
+def no_skill_score(task: str, d: pd.DataFrame) -> float:
+    """The score with no model at all, which anyone understands: mailing the same number of households at random
+    (Model 1: about 20% of redeemers), guessing the same average amount for every household (Model 2), or
+    mailing at random (Model 3: 0 extra buyers by definition)."""
+    if task == "classify":
+        return float(random_expected_capture(d["campaign"], d["label"]))
+    if task == "regress":
+        return float((d["label"] - d["label"].mean()).abs().mean())
+    return 0.0
 
 
 def newest_campaign(d: pd.DataFrame, primary: str, default: str, cfg: dict) -> dict | None:
@@ -262,6 +274,7 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
     # every option's own score on the primary measure, and the simple rule's (random targeting is 0 by definition)
     scores = {c: float(metric(primary)[0](scored_by(d, c))) for c in cands}
     scores["baseline_score"] = (0.0 if mcfg["task"] == "uplift" else float(metric(primary)[0](scored_by(d, "baseline_score"))))
+    scores["random"] = no_skill_score(mcfg["task"], d)
     result = {"model_id": model_id, "verdict": verdict, "decided_by": decided_by, "reasons": reasons,
               "owner_model": default, "primary_metric": primary, "vs_baseline": vs_base, "vs_rule": vs_rule,
               "alternatives": alternatives, "attribution": gains, "candidates": cands,

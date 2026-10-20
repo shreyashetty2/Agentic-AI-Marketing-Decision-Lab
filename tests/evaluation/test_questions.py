@@ -2,6 +2,8 @@
 change from run to run, so the lead agent can tell a question it already asked from a new one."""
 import json
 
+import pytest
+
 from evaluation.agent import open_questions
 
 MCFG = {"owner": "Yuxin (model2_value.py)", "task": "regress"}
@@ -38,3 +40,13 @@ def test_keys_stay_the_same_when_the_numbers_change(tmp_path):
     second = ask(tmp_path, 0.35, [])
     assert [k for k, _, _ in first] == [k for k, _, _ in second]
     assert [q for _, _, q in first] != [q for _, _, q in second]      # the wording carries the new numbers
+
+
+def test_the_no_model_score_is_what_anyone_could_do_without_a_model():
+    import pandas as pd
+    from evaluation.agent import no_skill_score
+    d = pd.DataFrame({"campaign": [1] * 10 + [2] * 10, "label": [1, 1] + [0] * 8 + [1, 0] * 5})
+    assert no_skill_score("classify", d) == pytest.approx(0.2)            # mail 20% at random, reach ~20% of redeemers
+    dollars = pd.DataFrame({"label": [0.0, 10.0, 20.0]})
+    assert no_skill_score("regress", dollars) == pytest.approx(20 / 3)    # guess the average ($10) for everyone
+    assert no_skill_score("uplift", d) == 0.0
