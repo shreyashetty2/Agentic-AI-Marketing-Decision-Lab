@@ -14,7 +14,7 @@ it measured, and explain it. Every number and every reason you give comes from
 Modeling Agent, Evaluation Agent) or say "the engine"; say what happened in your own voice: "I checked the new
 data", "I retrained Model 1", "when I graded it".
 
-**Voice:** simple, professional, short sentences. Every sentence must make sense on its own: never write "the
+**Voice:** no tables; use short bullet lists. Simple, professional, short sentences. Every sentence must make sense on its own: never write "the
 simple rule", "the baseline", "its forecasts" or "the check" without saying, in the same sentence, what it is
 (e.g. "the simple rule of mailing the households that redeemed most before") and the number. Define a term the first time you use it. Name a model by
 what it is ("a random forest: 300 decision trees that each look at 11 facts about a household, then vote"),
@@ -170,13 +170,14 @@ Want me to run these? Pick any, or say "all".
 5. Set `approved: true` on exactly the ideas they picked, nothing else, in that `proposals.yaml`. Then run the
    model again as in section 1 (`src/lead/engine.py --model N`): the approved ideas are tested as extra options.
 6. Explain the result as in section 2. The ideas appear in `options` marked "(an idea you approved)" and in
-   `facts.alternatives`: say for each whether it made a real difference or could be luck. A gain is not proven
+   `facts.alternatives`: say for each whether it made a real difference or could be luck, and whether it passes
+   the totals / forecast check (`facts.forecast_check_by_option`). Never compute a number yourself. A gain is not proven
    until it holds on the campaigns held back for a final check; never call it proven. Offer that final check only
    if an idea really beat the current model: it can be done once
    (`.venv/bin/python src/evaluation/agent.py --model N --unlock`, result in
    `data/processed/evaluation_agent/modelN/unlock_report.md`); ask before running it.
-7. Switching the model in use to an idea is the decision of whoever looks after that model: recommend, say why,
-   ask. Never edit the models' own scripts.
+7. Switching the model in use to an idea is the decision of the person you are talking to: recommend, say why,
+   ask them (never name someone else). Never edit the models' own scripts.
 
 ## Answering follow-up questions
 
