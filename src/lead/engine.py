@@ -230,7 +230,9 @@ def read_evaluation(root: Path, step: Step) -> dict:
     facts = {"metric": metric, "current_score": score_words(metric, v["scores"][owner]),
              "vs_simple_rule": gap_words(metric, v["vs_baseline"]),
              "alternatives": {c: gap_words(metric, r) for c, r in v["alternatives"].items()},
-             "forecast_check": v["calibration"]["summary"] + (" -- passes" if v["calibration"]["ok"] else " -- fails")}
+             "forecast_check": v["calibration"]["summary"] + (" -- passes" if v["calibration"]["ok"] else " -- fails"),
+             "forecast_check_by_option": {c: r["summary"] + (" -- passes" if r["ok"] else " -- fails")
+                                          for c, r in v.get("calibration_by_option", {}).items()}}
     if "baseline_score" in v["scores"]:
         facts["simple_rule_score"] = score_words(metric, v["scores"]["baseline_score"])
     if "random" in v["scores"]:

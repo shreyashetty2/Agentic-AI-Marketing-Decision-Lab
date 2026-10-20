@@ -242,6 +242,8 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
     facts["stability"] = float(picks.value_counts(normalize=True).iloc[0])
 
     cal = calibration(ecfg["calibration"]["kind"], ecfg["calibration"], d, default)
+    # the same check for every option, so a person choosing between them sees which ones pass
+    cal_by_option = {c: calibration(ecfg["calibration"]["kind"], ecfg["calibration"], d, c) for c in cands}
     facts["calibration_ok"] = cal["ok"]
     log.record("EVA-CAL", cal["summary"], "ok" if cal["ok"] else "not ok", "rule",
                "The Decision Lab adds these numbers up, so their level must match reality.", evidence=cal)
@@ -278,7 +280,7 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
     result = {"model_id": model_id, "verdict": verdict, "decided_by": decided_by, "reasons": reasons,
               "owner_model": default, "primary_metric": primary, "vs_baseline": vs_base, "vs_rule": vs_rule,
               "alternatives": alternatives, "attribution": gains, "candidates": cands,
-              "locked_campaigns": manifest["locked_campaigns"], "agent_choice": agent_choice, "calibration": cal, "facts": facts,
+              "locked_campaigns": manifest["locked_campaigns"], "agent_choice": agent_choice, "calibration": cal, "calibration_by_option": cal_by_option, "facts": facts,
               "metrics_owner_model": extra, "scores": scores, "newest_campaign": newest, "questions": [{"key": k, "who": w, "question": q} for k, w, q in questions], "checks": passed, "run_id": manifest["run_id"]}
     out = (out_root or ROOT / spec["output"]["dir"]) / f"model{model_id}"
     out.mkdir(parents=True, exist_ok=True)

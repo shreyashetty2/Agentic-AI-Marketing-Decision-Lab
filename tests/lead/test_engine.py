@@ -62,6 +62,7 @@ elif step == "evaluation":
                                                 "primary_metric": "within_campaign_capture", "owner_model": "own",
                                                 "vs_baseline": gap, "alternatives": {"alt": {**gap, "status": "inconclusive"}},
                                                 "calibration": {"ok": True, "summary": "inside the range for 92% of 13 campaigns"},
+                                                "calibration_by_option": {"alt": {"ok": False, "summary": "inside for 70%"}},
                                                 "run_id": run_id,
                                                 "newest_campaign": {"campaign": 5, "worse_than_usual": sc.get("worse", False)}}))
 '''
@@ -553,6 +554,7 @@ def test_the_summary_carries_the_measured_facts_in_plain_words(tmp_path):
     assert facts["vs_simple_rule"] == "+8.0 points (likely range +5.0 points to +12.0 points: a real difference)"
     assert facts["alternatives"]["alt"].endswith("could be luck)")
     assert facts["forecast_check"].endswith("-- passes")
+    assert facts["forecast_check_by_option"] == {"alt": "inside for 70% -- fails"}
 
 
 def test_the_reason_names_which_input_changed(tmp_path):
