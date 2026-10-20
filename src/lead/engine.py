@@ -130,10 +130,11 @@ def needs_run(step: Step, root: Path, state: dict) -> tuple[bool, str]:
     if "parts" not in last:   # recorded before the engine kept one hash per input: one hash over all of them
         same = last["inputs"] == fingerprint(root, step.inputs)
         return (False, "up to date") if same else (True, "its inputs changed since it last ran (which one was not recorded then)")
-    changed = [p for p in step.inputs if last["parts"].get(p) != fingerprint(root, [p])]
-    if changed:
-        return True, "changed since it last ran: " + ", ".join(input_words(p) for p in changed)
-    return False, "up to date"
+    added = [p for p in step.inputs if p not in last["parts"]]
+    changed = [p for p in step.inputs if p in last["parts"] and last["parts"][p] != fingerprint(root, [p])]
+    reasons = ([f"changed since it last ran: {', '.join(input_words(p) for p in changed)}"] if changed else []) + \
+              ([f"newly watched: {', '.join(input_words(p) for p in added)}"] if added else [])
+    return (True, "; ".join(reasons)) if reasons else (False, "up to date")
 
 
 def run_commands(step: Step, root: Path) -> tuple[bool, str]:

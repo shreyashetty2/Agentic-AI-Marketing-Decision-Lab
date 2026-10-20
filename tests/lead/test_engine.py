@@ -671,3 +671,13 @@ def test_readers_read_the_real_modeling_and_evaluation_files():
     assert modeling["stopped"] is None and modeling["current_model"].startswith("random forest")
     assert {"current_score", "vs_simple_rule", "alternatives", "forecast_check"} <= set(evaluation["facts"])
     assert evaluation["verdict"] in ("approve", "send_back_modeling", "send_back_features", "human_needed")
+
+
+def test_an_input_added_to_a_step_is_called_newly_watched_not_changed(tmp_path):
+    from lead.engine import record
+    root, _ = make_repo(tmp_path)
+    (root / "code.py").write_text("x = 1")
+    before = Step("data", "Data Agent", None, [], ["raw.csv"], ["raw.csv"])
+    state = {"steps": {"data": record(before, root, "t")}}
+    after = Step("data", "Data Agent", None, [], ["raw.csv", "code.py"], ["raw.csv"])
+    assert needs_run(after, root, state) == (True, "newly watched: its code (code.py)")
