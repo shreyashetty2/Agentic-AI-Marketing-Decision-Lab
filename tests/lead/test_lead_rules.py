@@ -2,7 +2,7 @@
 import pytest
 import yaml
 
-from lead.rules import answered, approve, known_values, load_rules, propose
+from lead.rules import answered, approve, load_rules, propose
 
 Q = "data:-:department:PHARMACY"
 
@@ -48,8 +48,9 @@ def test_a_rule_needs_a_person_and_an_existing_draft(tmp_path):
         approve(draft, " ", rules_path=rules_path, **d)
     with pytest.raises(SystemExit, match="no draft 'd9'"):
         approve("d9", "Pranav", rules_path=rules_path, **d)
-    with pytest.raises(SystemExit, match="not a question id"):
-        propose("PHARMACY", "no", "r", **d)
+    for bad in ("PHARMACY", "data:department:PHARMACY", "data:-:"):
+        with pytest.raises(SystemExit, match="not a question id"):
+            propose(bad, "no", "r", **d)
 
 
 def test_lookups(tmp_path):
@@ -57,10 +58,25 @@ def test_lookups(tmp_path):
     approve(propose(Q, "no", "r", **d), "Pranav", rules_path=rules_path, **d)
     rules = load_rules(rules_path)
     assert set(answered(rules)) == {Q}
-    assert known_values(rules, "data") == {"department:PHARMACY"}
-    assert known_values(rules, "features") == set()
 
 
 def test_the_real_rules_file_loads():
     from lead.rules import RULES_PATH
     assert isinstance(load_rules(RULES_PATH), list)
+
+
+def test_a_new_draft_never_takes_the_id_of_one_still_waiting(tmp_path):
+    d, rules_path = paths(tmp_path)
+    first, second = propose(Q, "a", "r1", **d), propose("data:-:department:X", "b", "r2", **d)
+    approve(first, "Pranav", rules_path=rules_path, **d)
+    third = propose("data:-:department:Y", "c", "r3", **d)
+    assert third not in (first, second)
+    saved = approve(second, "Pranav", rules_path=rules_path, **d)
+    assert saved["rule"] == "r2"
+
+
+def test_department_names_with_colons_and_spaces_survive(tmp_path):
+    d, rules_path = paths(tmp_path)
+    question = "data:-:department:MISC: SALES TRAN"
+    approve(propose(question, "no", "r", **d), "Pranav", rules_path=rules_path, **d)
+    assert set(answered(load_rules(rules_path))) == {question}

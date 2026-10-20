@@ -39,21 +39,17 @@ def answered(rules: list[dict]) -> dict[str, dict]:
     return {r["question"]: r for r in rules}
 
 
-def known_values(rules: list[dict], agent: str) -> set[str]:
-    """Keys of the given agent's questions that have been answered (e.g. 'department:PHARMACY')."""
-    return {r["question"].split(":", 2)[2] for r in rules if r["question"].startswith(f"{agent}:")}
-
-
 def _drafts(path: Path) -> dict:
     return json.loads(path.read_text()) if path.exists() else {}
 
 
 def propose(question: str, answer: str, rule: str, drafts_path: Path = DRAFTS_PATH) -> str:
     """Save a draft rule; returns its id. question: the id the lead agent gave it (agent:model:key)."""
-    if question.count(":") < 2:
+    parts = question.split(":", 2)
+    if len(parts) < 3 or not (parts[1] == "-" or parts[1].isdigit()) or not parts[2]:
         raise SystemExit(f"[STOP] '{question}' is not a question id (agent:model:key, as in the run summary)")
     drafts = _drafts(drafts_path)
-    draft_id = f"d{len(drafts) + 1}"
+    draft_id = f"d{max((int(k[1:]) for k in drafts), default=0) + 1}"   # never reuses the id of a waiting draft
     drafts[draft_id] = {"question": question, "answer": answer, "rule": rule}
     drafts_path.parent.mkdir(parents=True, exist_ok=True)
     drafts_path.write_text(json.dumps(drafts, indent=2))
