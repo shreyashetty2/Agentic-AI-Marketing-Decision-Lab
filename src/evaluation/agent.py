@@ -89,6 +89,27 @@ def wide(preds: pd.DataFrame) -> pd.DataFrame:
     return base.join(scores).join(chosen).reset_index()
 
 
+def newest_campaign(d: pd.DataFrame, primary: str, default: str, cfg: dict) -> dict | None:
+    """The owner's model on the newest finished test campaign, against its usual range on the campaigns before it.
+    Only campaigns big enough to mean something count (cfg: size = positives | rows | treated, min_size); the
+    usual range is the earlier campaigns' mean +/- width_sd standard deviations, from at least min_history of them.
+    None when there is too little history to say what is usual."""
+    fn, higher = metric(primary)
+    size_of = {"positives": lambda g: g["label"].sum(), "rows": len, "treated": lambda g: g["treatment"].sum()}[cfg["size"]]
+    rows = [{"campaign": int(c), "end_day": int(g["end_day"].iloc[0]), "size": int(size_of(g)),
+             "score": float(fn(scored_by(g, default)))}
+            for c, g in d.groupby("campaign") if size_of(g) >= cfg["min_size"]]
+    if len(rows) <= cfg["min_history"]:
+        return None
+    rows.sort(key=lambda r: (r["end_day"], r["campaign"]))
+    *history, newest = rows
+    past = np.array([r["score"] for r in history])
+    low, high = past.mean() - cfg["width_sd"] * past.std(ddof=1), past.mean() + cfg["width_sd"] * past.std(ddof=1)
+    worse = newest["score"] < low if higher else newest["score"] > high
+    return {**newest, "usual_low": float(low), "usual_high": float(high), "n_history": len(history),
+            "higher_is_better": higher, "worse_than_usual": bool(worse)}
+
+
 def contract(model_id: int, preds: pd.DataFrame, manifest: dict, mspec: dict, passed: list, processed: Path) -> None:
     keys = ["household_key", "campaign", "candidate_id"]
     check(not preds.duplicated(keys).any(), f"model {model_id}: one prediction per household x test campaign x candidate", passed)
@@ -220,6 +241,15 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
     log.record("EVA-VERDICT", f"verdict for the owner's model: {verdict}", verdict, decided_by, " ".join(reasons),
                evidence={k: v for k, v in facts.items()})
 
+    newest = newest_campaign(d, primary, default, ecfg["newest_campaign"]) if "newest_campaign" in ecfg else None
+    if newest and newest["worse_than_usual"]:
+        log.record("EVA-NEW", f"newest campaign {newest['campaign']}: {primary} {newest['score']:.4f}, usual range "
+                   f"{newest['usual_low']:.4f} to {newest['usual_high']:.4f}", "ask the owner", "human_needed",
+                   "The model did worse than usual on the newest campaign; something may have changed.", evidence=newest)
+        questions.append(("worse_than_usual", mcfg["owner"].split(" (")[0],
+                          f"On the newest campaign ({newest['campaign']}) the model scored {newest['score']:.4f} on "
+                          f"{primary}, outside its usual range of {newest['usual_low']:.4f} to {newest['usual_high']:.4f} "
+                          f"(from {newest['n_history']} earlier campaigns). Has something changed?"))
     questions += open_questions(model_id, mcfg, ecfg, d, default, vs_base, vs_rule, alternatives, cal, in_dir, cands)
     gains = attribution(cands, alternatives)
     ledger_upsert(modeling_dir / "proposal_ledger.csv", ledger_rows(model_id, cands, alternatives, "open"))
@@ -233,7 +263,7 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
               "owner_model": default, "primary_metric": primary, "vs_baseline": vs_base, "vs_rule": vs_rule,
               "alternatives": alternatives, "attribution": gains, "candidates": cands,
               "locked_campaigns": manifest["locked_campaigns"], "agent_choice": agent_choice, "calibration": cal, "facts": facts,
-              "metrics_owner_model": extra, "scores": scores, "questions": [{"key": k, "who": w, "question": q} for k, w, q in questions], "checks": passed, "run_id": manifest["run_id"]}
+              "metrics_owner_model": extra, "scores": scores, "newest_campaign": newest, "questions": [{"key": k, "who": w, "question": q} for k, w, q in questions], "checks": passed, "run_id": manifest["run_id"]}
     out = (out_root or ROOT / spec["output"]["dir"]) / f"model{model_id}"
     out.mkdir(parents=True, exist_ok=True)
     (out / "verdict.json").write_text(json.dumps(result, indent=2, default=float))

@@ -22,6 +22,9 @@ models:
     # Model 1 only: recalibrating on past errors was tested and made forecasts worse (model1_calibration work)
     calibration_hint: "widen the forecast ranges; do not recalibrate on past errors (that made Model 1 worse when tested)"
     approve_requires_human: false
+    # The newest finished test campaign against the usual range of the ones before it (a model slowly getting
+    # worse). Small campaigns are too noisy to count: Model 1 needs at least 15 redeemers.
+    newest_campaign: {size: positives, min_size: 15, min_history: 5, width_sd: 2}
     # Raised as a question every run until the team signs it off:
     measure_note: >-
       The Modeling Agent chooses between options by within-campaign ranking score (AUC), not the team's
@@ -33,6 +36,7 @@ models:
     also_report: []
     calibration: {kind: total_ratio, max_abs_rel_error: 0.15}
     approve_requires_human: false
+    newest_campaign: {size: rows, min_size: 10, min_history: 5, width_sd: 2}
   3:
     primary: ipw_stratified_qini           # extra buyers per mailed household vs. random, within campaign, weighted
     baseline_name: "Random targeting"      # its weighted Qini is 0 by construction
@@ -41,6 +45,7 @@ models:
     calibration: {kind: att, max_abs_error: 0.05}
     min_overlap_share: 0.70
     approve_requires_human: true           # no rule can check "no hidden confounders"; a person signs off
+    newest_campaign: {size: treated, min_size: 100, min_history: 5, width_sd: 2}
     measure_note: >-
       Judged on propensity-weighted, within-campaign Qini; Shreya's own evaluation uses the unweighted,
       pooled Qini, which mostly measures who got mailed. Does the owner accept the weighted measure?
