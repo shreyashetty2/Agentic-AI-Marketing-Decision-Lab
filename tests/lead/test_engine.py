@@ -116,8 +116,8 @@ def set_scenario(root: Path, **scenario) -> None:
 # ---- deciding what runs -----------------------------------------------------------------------------------
 
 def test_plan_steps_runs_shared_steps_once_then_each_model_in_order(tmp_path):
-    _, spec = make_repo(tmp_path)
-    steps = plan_steps(spec, [2, 3])
+    root, spec = make_repo(tmp_path)
+    steps = plan_steps(spec, [2, 3], root=root)
     assert [s.key for s in steps] == ["data", "features", "modeling:model2", "evaluation:model2",
                                       "modeling:model3", "evaluation:model3"]
     assert steps[2].runs == ["fake_agent.py modeling 2 data/processed/modeling_agent"]
