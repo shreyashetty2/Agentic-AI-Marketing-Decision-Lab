@@ -89,14 +89,14 @@ def wide(preds: pd.DataFrame) -> pd.DataFrame:
     return base.join(scores).join(chosen).reset_index()
 
 
-def contract(model_id: int, preds: pd.DataFrame, manifest: dict, mspec: dict, passed: list) -> None:
+def contract(model_id: int, preds: pd.DataFrame, manifest: dict, mspec: dict, passed: list, processed: Path) -> None:
     keys = ["household_key", "campaign", "candidate_id"]
     check(not preds.duplicated(keys).any(), f"model {model_id}: one prediction per household x test campaign x candidate", passed)
     check(not preds["score"].isna().any(), f"model {model_id}: no blank scores", passed)
     per_row = preds[preds["chosen"]].groupby(["household_key", "campaign"]).size()
     check((per_row == 1).all() and len(per_row) == int(preds["is_default"].sum()),
           f"model {model_id}: exactly one agent choice per household x test campaign", passed)
-    table = pd.read_parquet(ROOT / mspec["input"]["dir"] / mspec["models"][model_id]["table"],
+    table = pd.read_parquet(processed / mspec["models"][model_id]["table"],
                             columns=["campaign", "end_day"]).drop_duplicates().set_index("campaign")["end_day"]
     late = [f["test_campaign"] for f in manifest["folds"]
             if any(table[c] >= f["cutoff_day"] for c in f["train_campaigns"])]
@@ -153,14 +153,18 @@ def calibration(kind: str, cfg: dict, d: pd.DataFrame, default: str) -> dict:
                        f"(need within {cfg['max_abs_error']})"}
 
 
-def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None) -> dict:
+def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None, modeling_dir: Path | None = None,
+                   processed: Path | None = None, out_root: Path | None = None) -> dict:
+    """modeling_dir / processed / out_root default to the folders in the instruction files; the lead agent's
+    replay points them at its own dated folders."""
     t0, passed = time.time(), []
     ecfg, mcfg = spec["models"][model_id], mspec["models"][model_id]
-    in_dir = ROOT / spec["input"]["dir"] / f"model{model_id}"
+    modeling_dir = modeling_dir or ROOT / spec["input"]["dir"]
+    in_dir = modeling_dir / f"model{model_id}"
     preds = pd.read_parquet(in_dir / "predictions.parquet")
     manifest = json.loads((in_dir / "manifest.json").read_text())
     log = DecisionLog("evaluation", model_id, manifest["run_id"])
-    contract(model_id, preds, manifest, mspec, passed)
+    contract(model_id, preds, manifest, mspec, passed, processed or ROOT / mspec["input"]["dir"])
     log.record("EVA-01", f"hand-off from run {manifest['run_id']}: {len(manifest['folds'])} test campaigns",
                "accept hand-off", "rule", "All contract checks passed (see Checks).")
 
@@ -218,7 +222,7 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
 
     questions += open_questions(model_id, mcfg, ecfg, d, default, vs_base, vs_rule, alternatives, cal, in_dir, cands)
     gains = attribution(cands, alternatives)
-    ledger_upsert(ROOT / mspec["output"]["dir"] / "proposal_ledger.csv", ledger_rows(model_id, cands, alternatives, "open"))
+    ledger_upsert(modeling_dir / "proposal_ledger.csv", ledger_rows(model_id, cands, alternatives, "open"))
     for _, who, q in questions:
         log.record("EVA-Q", q, f"ask the {who}", "human_needed", "A question the rules should not settle on their own.")
     extra = {name: metric(name)[0](scored_by(d, default)) for name in [primary] + ecfg["also_report"]}
@@ -230,7 +234,7 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
               "alternatives": alternatives, "attribution": gains, "candidates": cands,
               "locked_campaigns": manifest["locked_campaigns"], "agent_choice": agent_choice, "calibration": cal, "facts": facts,
               "metrics_owner_model": extra, "scores": scores, "questions": [{"key": k, "who": w, "question": q} for k, w, q in questions], "checks": passed, "run_id": manifest["run_id"]}
-    out = ROOT / spec["output"]["dir"] / f"model{model_id}"
+    out = (out_root or ROOT / spec["output"]["dir"]) / f"model{model_id}"
     out.mkdir(parents=True, exist_ok=True)
     (out / "verdict.json").write_text(json.dumps(result, indent=2, default=float))
     log.save(out)
@@ -379,13 +383,16 @@ def main() -> None:
     parser.add_argument("--model", default="all", choices=["1", "2", "3", "all"])
     parser.add_argument("--iteration", type=int, default=None, help="override the hand-off's iteration count")
     parser.add_argument("--unlock", action="store_true", help="the final check on the locked campaigns (recorded)")
+    parser.add_argument("--modeling", type=Path, default=None, help="folder with the Modeling Agent's model{n} hand-offs")
+    parser.add_argument("--processed", type=Path, default=None, help="folder with the model tables")
+    parser.add_argument("--out", type=Path, default=None, help="folder for the model{n} verdicts")
     args = parser.parse_args()
     spec, mspec = load_evaluation_spec(), load_modeling_spec()
     for model_id in ([1, 2, 3] if args.model == "all" else [int(args.model)]):
         if args.unlock:
             unlock_model(model_id, spec, mspec)
         else:
-            evaluate_model(model_id, spec, mspec, args.iteration)
+            evaluate_model(model_id, spec, mspec, args.iteration, args.modeling, args.processed, args.out)
 
 
 if __name__ == "__main__":
