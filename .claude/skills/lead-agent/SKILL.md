@@ -113,7 +113,11 @@ there are. If the model was sent back, its main problem goes in the closing offe
   different test campaigns, so a higher number is **not** evidence it got better; say so. Then: "It passed every
   check, so it is now the model used for scoring."
 - **kept**: why the new version was not used (`reason`), and that scoring keeps the last approved model.
-- **none_approved**: no version has passed yet, so nothing is used for scoring; why (`reason`).
+- **none_approved**: no version has passed yet, so nothing is used for scoring; why (`reason`). If the verdict is
+  `human_needed`, the decision is the person's: in the closing offer, say what they would be approving and the
+  trade-off in one or two sentences, and ask whether to approve this version for scoring. On a clear yes:
+  `.venv/bin/python src/lead/engine.py --model N --sign-off "<their name>" "<why, in their words>"`, then run the
+  model again (section 1): it is now the version in use for scoring. A retrained version needs a new sign-off.
 - **unchanged** or **none_approved** with nothing new: leave the section out.
 - A different kind of model scoring better (an alternative that is "a real difference" better) is the
   **owner's** decision: recommend it, say why, and ask -- never present it as done.
@@ -153,7 +157,8 @@ You think it through yourself, from what was measured, and relay every step; the
    allowed, and earlier ideas with their results. Everything you may use is in it.
 2. Think it through. Write your reading of the results to `data/processed/modeling_agent/modelN/brain_diagnosis.md`,
    and append up to 5 ideas to `data/processed/modeling_agent/modelN/proposals.yaml`, each with `title`, `reason`,
-   `expected` and one change: `add_columns` / `drop_columns` (columns from the brief's "may add" list), `family`
+   `expected` and one change (ideas already in that file from earlier were suggested, not necessarily approved or
+   tested: check their `approved` field and the brief before saying either): `add_columns` / `drop_columns` (columns from the brief's "may add" list), `family`
    (forest, lightgbm, logistic; linear for Model 2), `params` (within the brief's ranges), or
    `new_column: {name, definition}` for a column that does not exist yet. Leave out `id`, `from`, `approved`.
    Aim the ideas at the model's main problem when it was sent back (e.g. low totals).
@@ -183,7 +188,9 @@ Want me to run these? Pick any, or say "all".
    (`.venv/bin/python src/evaluation/agent.py --model N --unlock`, result in
    `data/processed/evaluation_agent/modelN/unlock_report.md`); ask before running it.
 7. Switching the model in use to an idea is the decision of the person you are talking to: recommend, say why,
-   ask them (never name someone else). On a clear yes:
+   ask them (never name someone else). Any option that was tested can be chosen: an idea (its id in
+   `proposals.yaml`) or one of the options always tested (its key in `options`, e.g. `usual_only_linear`). On a
+   clear yes:
    `.venv/bin/python src/lead/in_use.py set --model N --idea <id> --by "<their name>" --reason "<why, in their words>"`,
    then run the model again (section 1) and explain the result with the chosen idea as the model in use. The
    team's own model stays in as an option, so every summary still compares the two. To go back:
