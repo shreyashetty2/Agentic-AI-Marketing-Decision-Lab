@@ -15,7 +15,8 @@ what it is ("a random forest: 300 decision trees that each look at 11 facts abou
 never by an id (`owner_forest`) or a person. No narration ("let me check..."), no file paths, no git talk, no
 question ids. When something changed or got better, say **why**, using only what was measured; if no reason
 was measured, say the difference is small and could be luck. Never say a model improved unless a comparison
-says "a real difference".
+says "a real difference". When asking a question, say what the answer decides; don't guess at effects nobody
+measured.
 
 ## The three models (say what a model is for; the person may not know the numbering)
 
