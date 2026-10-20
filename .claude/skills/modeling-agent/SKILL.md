@@ -45,45 +45,104 @@ used for real. The last few campaigns are held back for a final check and are no
 
 ## Step 1: "run on model N"
 
-**1a. Before running, say what you will do.** Read the model's section of
-`src/modeling/modeling_spec.yaml` (and approved ideas in
-`data/processed/modeling_agent/modelN/proposals.yaml`, if any), then show:
+**1a. Your very first output is the intro below, copied as written, before any tool call.** Do not
+read the spec or any file first, and do not narrate ("let me check...", "no ideas are approved...")
+-- not here and not between later steps. The person sees only the intro, then the results.
+After Step 3, add the ideas they picked to the list (you already know them from the conversation).
+
+Model 1:
 
 ```
-**We're running Model N: <question>**
+**We're running Model 1: will a mailed household redeem a coupon?**
 
-**What it's for:** <one or two sentences from "What each model is for" above>
-**The data:** <rows> rows, one per household per campaign<, Model 3: mailed and unmailed households>.
+**What it's for:** it ranks households by how likely they are to redeem, so a marketer can mail the
+most likely ones first and forecast how many redemptions a campaign will get.
+**The data:** 7,208 rows, one per mailed household per campaign.
 
-**The test:** <2 sentences: train on finished campaigns, test on the next unseen one, and the score in plain words>
+**The test:** each model learns only from campaigns that had already finished, then predicts the next
+campaign, which it has never seen -- campaign after campaign, as it would be used for real. The score
+is "redeemers caught": of the households that really redeemed, how many are in the model's top 20%.
 
 **Models I'm going to run:**
-1. <kind>, <key settings>, <how many columns> -- the team's current model
-2. ...
+1. Random forest (many yes/no decision trees that vote): 300 trees, 6 levels deep, 11 columns -- the team's current model
+2. Logistic regression (one weighted formula turned into a chance), same 11 columns
+3. Random forest, same settings, 21 columns (the 11 plus 10 more already built)
+4. LightGBM (trees built one after another, each fixing the last one's mistakes), 300 trees, 11 columns
+5. LightGBM, 21 columns
+6. Deeper random forest: 10 levels deep, 11 columns
+7. Shallower random forest: 4 levels deep, 11 columns
 
-Running now -- about <time>.
+Running now -- about 2 minutes.
 ```
 
-Describe each kind in a few words the first time it appears:
+Model 2:
+
+```
+**We're running Model 2: how many dollars will a mailed household spend on the campaign's products?**
+
+**What it's for:** it forecasts the dollars a household will spend on the campaign's products, so the
+Decision Lab can weigh sales against the cost of the discounts.
+**The data:** 254 rows, one per mailed household per campaign.
+
+**The test:** each model learns only from campaigns that had already finished, then predicts the next
+campaign, which it has never seen -- campaign after campaign, as it would be used for real. The score
+is the average dollar error per household: how far off the prediction is. Lower is better.
+
+**Models I'm going to run:**
+1. Calibrated usual spend: a straight line on the household's usual spend alone, fit through the middle of the answers so a few very big spenders don't pull it -- the team's current model
+2. Random forest (many yes/no decision trees that vote): 300 trees, 6 levels deep, 10 columns
+3. Linear regression (one weighted formula of the columns, giving dollars), same 10 columns
+4. Linear regression on usual spend alone
+5. Deeper random forest: 10 levels deep, 10 columns
+6. Shallower random forest: 4 levels deep, 10 columns
+
+Running now -- about 10 seconds.
+```
+
+Model 3:
+
+```
+**We're running Model 3: does mailing a household make it more likely to buy?**
+
+**What it's for:** it estimates how much mailing changes a household's buying, so a marketer can mail
+the households the mailer actually persuades, not the ones who would have bought anyway.
+**The data:** 43,396 rows, one per household per campaign, mailed and unmailed.
+
+**The test:** each model learns only from campaigns that had already finished, then predicts the next
+campaign, which it has never seen -- campaign after campaign, as it would be used for real. The score
+is extra buyers per 100 mailed households compared with mailing at random (random = 0). It corrects for
+the store having mailed heavier spenders, but only approximately.
+
+**Models I'm going to run** (each is a pair: one learns from mailed households, one from unmailed; the
+difference between their predictions is the mailer's effect):
+1. Random-forest pair: 300 trees, 6 levels deep, 11 columns -- the team's current model
+2. Logistic-regression pair (one weighted formula turned into a chance), same 11 columns
+3. Random-forest pair, 15 columns (the 11 plus 4 more already built)
+4. Shallower random-forest pair: 4 levels deep, 11 columns
+
+Running now -- about 5 minutes.
+```
+
+These lists mirror `candidates` in `src/modeling/modeling_spec.yaml`; if they differ, the spec is right
+-- say so in one line after the results. If the person asks about a kind of model, describe it:
 - random forest: many decision trees (each a chain of yes/no questions about the household) that vote;
   settings: number of trees, how many levels deep, smallest group of households a tree may split down to
 - logistic regression: one weighted formula of the columns, turned into a chance
 - linear regression: one weighted formula of the columns, giving dollars
-- calibrated usual spend (Model 2's current model): a straight line on usual spend alone, fit through the
-  middle of the answers so a few very big spenders don't pull it -- e.g. "spend = 0.8 x usual spend + $6"
+- calibrated usual spend: e.g. "spend = 0.8 x usual spend + $6"
 - LightGBM: trees built one after another, each fixing the mistakes of the ones before
-- Model 3's models are pairs: one learns from mailed households, one from unmailed; the difference
-  between their predictions is the mailer's effect
-- "more columns" = the extra columns listed under `feature_sets` in the spec
-Settings are in the spec (`params`). The team's current model is each model's `default`. Run time: Model 2
-~10 s, Model 1 ~2 min, Model 3 ~5 min. Do not ask before running.
+Do not ask before running.
 
-**1b. Run both:**
-- `.venv/bin/python src/modeling/agent.py --model N --mode forward` -- add `--proposals --iteration R` if
-  any idea is `approved: true` (R = 2 the first time ideas run, then +1 each time)
-- `.venv/bin/python src/evaluation/agent.py --model N`
+**1b. Run both, as ONE command, right after the intro:**
 
-**1c. Show the results.** Read "Every option's own score" in
+```
+.venv/bin/python src/modeling/agent.py --model N --mode forward > /dev/null && .venv/bin/python src/evaluation/agent.py --model N > /dev/null && echo done
+```
+
+If any idea was approved in Step 3, add `--proposals --iteration R` to the first command (R = 2 the
+first time ideas run, then +1 each time). If it fails, rerun without `> /dev/null` to see why.
+
+**1c. Show the results** (nothing else before them). Read "Every option's own score" in
 `data/processed/evaluation_agent/modelN/report.md`, and show every model's score, best first:
 
 ```
