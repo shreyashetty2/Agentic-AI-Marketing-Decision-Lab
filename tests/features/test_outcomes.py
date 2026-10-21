@@ -63,8 +63,8 @@ def test_one_row_per_spine_row(tables, causal):
 
 
 def test_bought_without_redemption():
-    """Mentor feedback: split Model 3's outcome by whether the purchase was tied to an actually
-    redeemed coupon. Self-contained scenario (not the shared `tables` fixture) with three mailed
+    """Split Model 3's outcome by whether the purchase was tied to an actually redeemed coupon.
+    Self-contained scenario (not the shared `tables` fixture) with three mailed
     households, one purchase each, spread across distinct weeks so only the intended one is
     confounded by a display:
       1 redeemed the coupon, then bought unconfounded -> bought=1, without_redemption=0
