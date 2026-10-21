@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from evaluation.metrics import balance, cluster_bootstrap, fit_propensity, forecast_coverage, mae, stratified_qini
+from evaluation.metrics import balance, cluster_bootstrap, e_value, fit_propensity, forecast_coverage, mae, stratified_qini
 from modeling.model3_uplift import qini_points
 
 
@@ -70,6 +70,26 @@ def test_cluster_bootstrap_moves_a_households_rows_together():
     # each resample holds households 1 and/or 2; household 1 always brings all 3 rows
     draws = cluster_bootstrap(d, lambda s: len(s[s["household_key"] == 1]) % 3, reps=50, seed=0)
     assert (draws == 0).all()
+
+
+def test_e_value_matches_the_known_worked_example():
+    # VanderWeele & Ding 2017's own worked example: RR = 3.9 -> E-value ~= 7.27
+    assert e_value(0.039, 0.01) == pytest.approx(7.264, abs=1e-2)
+
+
+def test_e_value_is_direction_free():
+    # Same gap, control higher than treated this time: same E-value either way round.
+    assert e_value(0.01, 0.039) == pytest.approx(e_value(0.039, 0.01))
+
+
+def test_e_value_grows_with_the_effect_size():
+    small = e_value(0.15, 0.10)
+    large = e_value(0.30, 0.10)
+    assert large > small > 1.0   # E-value is always >= 1; a bigger gap needs a stronger confounder to explain
+
+
+def test_e_value_is_none_when_there_is_no_gap():
+    assert e_value(0.10, 0.10) is None
 
 
 def test_mae():
