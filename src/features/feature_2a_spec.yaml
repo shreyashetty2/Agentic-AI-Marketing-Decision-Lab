@@ -147,7 +147,7 @@ outcome:   # measured from start_day to end_day inclusive
     blank_when: [type_a]
   bought_campaign_product_without_redemption:
     desc: >
-      Model 3 refinement (mentor feedback). 1 if the household bought this campaign's products
+      Model 3 refinement. 1 if the household bought this campaign's products
       (same unconfounded definition as the main outcome) but NOT via a coupon they actually
       redeemed for this campaign. Isolates purchases that would have happened regardless of the
       mailer from the main outcome, which counts any qualifying purchase as a "success". Always 0
