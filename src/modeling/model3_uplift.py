@@ -166,6 +166,83 @@ def train_t_learner_weighted(train: pd.DataFrame):
     return model_t, model_c, treated, control
 
 
+BALANCE_COLUMNS = ["spend_per_week_26w", "campaign_product_spend_per_week_26w",
+                   "coupon_lines_per_week_26w", "past_redemption_rate"]
+
+
+def entropy_balance_weights(treated: pd.DataFrame, control: pd.DataFrame, columns: list[str],
+                           max_iter: int = 200, tol: float = 1e-10) -> np.ndarray | None:
+    """Hainmueller (2012) entropy balancing: weights for the control rows so their weighted mean on
+    `columns` matches the treated group's mean as closely as the data allows -- directly solved for,
+    not hoped for as a side effect of a fitted propensity model (which is what plain IPW does, and
+    why a real gap remains even after weighting). An ATT-style correction: treated rows keep weight 1,
+    control is reweighted to look like the treated population on these columns specifically.
+
+    Returns None if it doesn't converge -- this happens when the treated group's mean sits outside
+    the control group's range on some column (the retailer's heaviest mailed spenders can be more
+    extreme than any control household), which no reweighting can fix; the right answer then is to
+    say so, not to return numbers that look balanced but aren't."""
+    X = control[columns].to_numpy(dtype=float)
+    target = treated[columns].to_numpy(dtype=float).mean(axis=0)
+    mean, std = X.mean(axis=0), X.std(axis=0)
+    std[std == 0] = 1.0
+    Xs, targets = (X - mean) / std, (target - mean) / std
+
+    def weights_and_gap(lam):
+        scores = Xs @ lam
+        scores -= scores.max()
+        w = np.exp(scores)
+        w /= w.sum()
+        return w, w @ Xs - targets                     # E_w[X] - target; want 0
+
+    lam = np.zeros(Xs.shape[1])
+    w, grad = weights_and_gap(lam)
+    for _ in range(max_iter):
+        gap = np.max(np.abs(grad))
+        if gap < tol:
+            return w / w.sum() * len(control)           # rescaled so weights average to 1, like sample_weight
+        hess = (Xs * w[:, None]).T @ Xs - np.outer(w @ Xs, w @ Xs)
+        try:
+            step = np.linalg.solve(hess + 1e-6 * np.eye(len(lam)), grad)
+        except np.linalg.LinAlgError:
+            return None
+        # Undamped Newton can diverge on heavy-tailed data (spend is far from normal) -- a plain
+        # full step blew lambda up to the billions and oscillated on this exact data. Backtrack
+        # (halve the step) until it actually makes progress.
+        alpha = 1.0
+        for _ in range(50):
+            new_lam = lam - alpha * step
+            new_w, new_grad = weights_and_gap(new_lam)
+            if np.max(np.abs(new_grad)) < gap or alpha < 1e-8:
+                break
+            alpha /= 2
+        lam, w, grad = new_lam, new_w, new_grad
+    return w / w.sum() * len(control) if np.max(np.abs(grad)) < tol else None
+
+
+def train_t_learner_entropy_balanced(train: pd.DataFrame):
+    """Same T-learner, but Model C is trained with weights solved to make the control group's mean on
+    the 4 columns the Evaluation Agent checks balance on (modeling_spec.yaml's propensity.balance_columns)
+    match the treated group's directly, instead of relying on a propensity model's indirect fit. Real
+    weights on the full dataset range from 0.5 to ~1,760 -- exact balance on the mean is bought by
+    heavily upweighting a handful of high-spend control households, a real bias/variance tradeoff, not
+    a free win; worth comparing to the plain T-learner's variance, not just its balance number."""
+    treated, control = train[train[TREATMENT] == 1], train[train[TREATMENT] == 0]
+    w = entropy_balance_weights(treated, control, BALANCE_COLUMNS)
+    if w is None:
+        # Falling back silently here would make "didn't converge" look identical to "converged, no
+        # difference" -- exactly the bug that produced a zero-width, zero-gap result on one real run.
+        print("[warn] entropy balancing did not converge; owner_t_forest_entropy_balanced fell back "
+              "to the plain T-learner's weighting (every weight = 1) -- treat its score as untested, "
+              "not as evidence balancing doesn't help.")
+        w = np.ones(len(control))
+    model_t = RandomForestClassifier(n_estimators=300, max_depth=6, min_samples_leaf=20, random_state=42)
+    model_c = RandomForestClassifier(n_estimators=300, max_depth=6, min_samples_leaf=20, random_state=42)
+    model_t.fit(treated[FEATURES], treated[LABEL])
+    model_c.fit(control[FEATURES], control[LABEL], sample_weight=w)
+    return model_t, model_c, treated, control
+
+
 def x_learner_combine(tau0_pred: np.ndarray, tau1_pred: np.ndarray, propensity: np.ndarray) -> np.ndarray:
     """tau(x) = e(x)*tau1(x) + (1-e(x))*tau0(x). tau1 is fit on treated units' pseudo-outcomes, so it
     has real sample support where propensity is high (mostly treated nearby) -- it should dominate
@@ -177,20 +254,31 @@ def x_learner_combine(tau0_pred: np.ndarray, tau1_pred: np.ndarray, propensity: 
 class _CombinedEstimator:
     """A single object exposing .predict(X) -> uplift score, so it slots into Fitted(kind="regress")
     with no changes to the scoring code. feature_importances_ is the average of the two sub-models',
-    so importances() still works if this is ever picked as a model's default."""
-    def __init__(self, tau0, tau1, combine, features):
-        self.tau0, self.tau1, self.combine, self.features = tau0, tau1, combine, features
+    so importances() still works if this is ever picked as a model's default.
+
+    combine() is a plain method, not a closure over propensity_model -- a closure isn't picklable
+    (caught for real: saving this as the model in use failed with PicklingError, since joblib/pickle
+    can't serialize a function defined inside another function). Keeping propensity_model as a
+    regular attribute makes the whole object an ordinary, picklable bag of sklearn/lightgbm models."""
+    def __init__(self, tau0, tau1, propensity_model, features):
+        self.tau0, self.tau1, self.propensity_model, self.features = tau0, tau1, propensity_model, features
         self.feature_importances_ = (tau0.feature_importances_ + tau1.feature_importances_) / 2
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         X = X[self.features]
-        return self.combine(X, self.tau0.predict(X), self.tau1.predict(X))
+        g = np.clip(self.propensity_model.predict_proba(X)[:, 1], 0.01, 0.99)
+        return x_learner_combine(self.tau0.predict(X), self.tau1.predict(X), g)
 
 
-def train_x_learner(train: pd.DataFrame) -> _CombinedEstimator:
+CONFOUND_AWARE_FEATURES = FEATURES + ["campaign_promo_share"]
+
+
+def train_x_learner(train: pd.DataFrame, features: list[str] = FEATURES) -> _CombinedEstimator:
     """X-learner (Kunzel et al. 2019): built for exactly this dataset's problem -- a ~12:1
     treated/control imbalance, where a plain T-learner's two models are fit on wildly different
-    sample sizes and their errors don't cancel.
+    sample sizes and their errors don't cancel. Already weights by propensity internally (stage 3
+    below) -- this is not a plain, unweighted T-learner with extra steps; the weighting is the whole
+    point of the combine step.
 
     Stage 1: the same plain T-learner as train_t_learner() (model_t on treated, model_c on control).
     Stage 2: each unit's imputed treatment effect, using the OTHER group's model as its counterfactual
@@ -199,16 +287,24 @@ def train_x_learner(train: pd.DataFrame) -> _CombinedEstimator:
     Stage 3: combine by propensity: tau(x) = e(x)*tau1(x) + (1-e(x))*tau0(x). Where e(x) is high
     (mostly treated nearby), tau1 is the one with real sample support there, so it gets the larger
     weight; symmetrically for tau0 where e(x) is low. (Verified on a synthetic check, not just
-    recalled: see tests/modeling/test_model3_uplift.py.)"""
-    model_t, model_c, treated, control = train_t_learner(train)
+    recalled: see tests/modeling/test_model3_uplift.py.)
 
-    d_treated = treated[LABEL].to_numpy(dtype=float) - model_c.predict_proba(treated[FEATURES])[:, 1]
-    d_control = model_t.predict_proba(control[FEATURES])[:, 1] - control[LABEL].to_numpy(dtype=float)
+    `features` defaults to the owner's standard column list; pass CONFOUND_AWARE_FEATURES to also
+    give it campaign_promo_share (tested as a separate candidate, not folded into the default)."""
+    treated_mask = train[TREATMENT] == 1
+    treated, control = train[treated_mask], train[~treated_mask]
+    model_t = RandomForestClassifier(n_estimators=300, max_depth=6, min_samples_leaf=20, random_state=42)
+    model_c = RandomForestClassifier(n_estimators=300, max_depth=6, min_samples_leaf=20, random_state=42)
+    model_t.fit(treated[features], treated[LABEL])
+    model_c.fit(control[features], control[LABEL])
+
+    d_treated = treated[LABEL].to_numpy(dtype=float) - model_c.predict_proba(treated[features])[:, 1]
+    d_control = model_t.predict_proba(control[features])[:, 1] - control[LABEL].to_numpy(dtype=float)
 
     tau1 = RandomForestRegressor(n_estimators=300, max_depth=6, min_samples_leaf=20, random_state=42)
     tau0 = RandomForestRegressor(n_estimators=300, max_depth=6, min_samples_leaf=20, random_state=42)
-    tau1.fit(treated[FEATURES], d_treated)
-    tau0.fit(control[FEATURES], d_control)
+    tau1.fit(treated[features], d_treated)
+    tau0.fit(control[features], d_control)
 
     # The combining step needs e(x) at SCORING time (any row handed to .predict() later, not just
     # these training rows), so it gets its own propensity model rather than reusing the training-time
@@ -217,13 +313,9 @@ def train_x_learner(train: pd.DataFrame) -> _CombinedEstimator:
     propensity_model = LGBMClassifier(n_estimators=400, learning_rate=0.03, num_leaves=31,
                                       min_child_samples=50, subsample=0.8, subsample_freq=1,
                                       colsample_bytree=0.8, random_state=0, n_jobs=4, verbose=-1)
-    propensity_model.fit(train[FEATURES], train[TREATMENT])
+    propensity_model.fit(train[features], train[TREATMENT])
 
-    def combine(X, tau0_pred, tau1_pred):
-        g = np.clip(propensity_model.predict_proba(X)[:, 1], 0.01, 0.99)
-        return x_learner_combine(tau0_pred, tau1_pred, g)
-
-    return _CombinedEstimator(tau0, tau1, combine, FEATURES)
+    return _CombinedEstimator(tau0, tau1, propensity_model, features)
 
 
 class _DRLearnerEstimator:

@@ -32,8 +32,13 @@ def owner_features(model_id: int) -> list[str]:
 
 
 def owner_learner_features(model_id: int, owner_learner: str) -> list[str]:
-    """The columns one owner model actually uses: the calibrated Model 2 uses usual spend only."""
-    return [model2_value.USUAL] if owner_learner == "calibrated" else owner_features(model_id)
+    """The columns one owner model actually uses: the calibrated Model 2 uses usual spend only; the
+    confound-aware X-learner adds campaign_promo_share to the owner's usual list."""
+    if owner_learner == "calibrated":
+        return [model2_value.USUAL]
+    if owner_learner == "x_learner_confound_aware":
+        return list(model3_uplift.CONFOUND_AWARE_FEATURES)
+    return owner_features(model_id)
 
 
 def load_owner_table(model_id: int, processed: Path) -> pd.DataFrame:
@@ -48,8 +53,14 @@ def fit_owner(model_id: int, owner_learner: str, train: pd.DataFrame, candidate_
         if owner_learner == "forest_weighted":
             model_t, model_c, _, _ = model3_uplift.train_t_learner_weighted(train)
             return Fitted(candidate_id, "uplift", features, treated_model=model_t, control_model=model_c)
+        if owner_learner == "forest_entropy_balanced":
+            model_t, model_c, _, _ = model3_uplift.train_t_learner_entropy_balanced(train)
+            return Fitted(candidate_id, "uplift", features, treated_model=model_t, control_model=model_c)
         if owner_learner == "x_learner":
             return Fitted(candidate_id, "regress", features, estimator=model3_uplift.train_x_learner(train))
+        if owner_learner == "x_learner_confound_aware":
+            est = model3_uplift.train_x_learner(train, features=model3_uplift.CONFOUND_AWARE_FEATURES)
+            return Fitted(candidate_id, "regress", model3_uplift.CONFOUND_AWARE_FEATURES, estimator=est)
         if owner_learner == "dr_learner":
             return Fitted(candidate_id, "regress", features, estimator=model3_uplift.train_dr_learner(train))
         model_t, model_c, _, _ = model3_uplift.train_t_learner(train)

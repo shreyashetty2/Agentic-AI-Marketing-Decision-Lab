@@ -1,0 +1,14 @@
+{
+  "n_train": 1842,
+  "n_test": 1387,
+  "auc": 0.675,
+  "base_rate": 0.5379,
+  "top_fifth_rate": 0.7292,
+  "top_features": {
+    "campaign_product_spend_per_week_26w": 0.2846,
+    "campaign_product_share_26w": 0.1926,
+    "duration_days": 0.1781,
+    "spend_per_week_8w": 0.0836,
+    "history_weeks_before_cutoff": 0.0634
+  }
+}

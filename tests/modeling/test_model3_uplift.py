@@ -8,7 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from modeling.model3_uplift import (  # noqa: E402
-    LABEL, TREATMENT, WITHOUT_REDEMPTION, ate_test, demographic_segmentation,
+    LABEL, TREATMENT, WITHOUT_REDEMPTION, ate_test, demographic_segmentation, entropy_balance_weights,
     redemption_segmentation, spend_tier_segmentation, time_split, x_learner_combine,
 )
 
@@ -108,6 +108,25 @@ def test_x_learner_combine_is_the_simple_weighted_average():
     tau0, tau1, g = np.array([2.0, -1.0]), np.array([4.0, 3.0]), np.array([0.25, 0.75])
     combined = x_learner_combine(tau0, tau1, g)
     assert combined == pytest.approx([0.25 * 4.0 + 0.75 * 2.0, 0.75 * 3.0 + 0.25 * -1.0])
+
+
+def test_entropy_balance_weights_matches_the_treated_mean_exactly():
+    rng = np.random.default_rng(0)
+    control = pd.DataFrame({"a": rng.normal(5, 4, 2000), "b": rng.normal(3, 3, 2000)})
+    treated = pd.DataFrame({"a": rng.normal(10, 1, 300), "b": rng.normal(5, 1, 300)})
+    w = entropy_balance_weights(treated, control, ["a", "b"])
+    assert w is not None
+    weighted_mean = (control[["a", "b"]].to_numpy() * w[:, None]).sum(axis=0) / w.sum()
+    assert weighted_mean == pytest.approx(treated[["a", "b"]].mean().to_numpy(), abs=1e-6)
+    assert w.sum() == pytest.approx(len(control))   # weights average to 1, like a sample_weight
+
+
+def test_entropy_balance_weights_returns_none_when_infeasible():
+    # treated's mean sits far outside anything in the control group's range -- no reweighting fixes that
+    rng = np.random.default_rng(0)
+    control = pd.DataFrame({"a": rng.normal(5, 1, 500)})
+    treated = pd.DataFrame({"a": rng.normal(50, 1, 100)})
+    assert entropy_balance_weights(treated, control, ["a"]) is None
 
 
 def test_demographic_segmentation_excludes_no_demographics_rows_and_small_categories():

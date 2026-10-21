@@ -12,8 +12,8 @@ import pandas as pd
 import pytest
 
 from lead.engine import ROOT as REPO_ROOT
-from lead.engine import (Step, classify, fingerprint, mark_current, needs_run, plan_steps, read_data, render,
-                         run)
+from lead.engine import (Step, classify, fingerprint, mark_current, needs_run, plan_steps, read_data,
+                         read_sure_things, render, run)
 
 FAKE_AGENT = r'''
 import json, sys
@@ -122,6 +122,36 @@ def test_plan_steps_runs_shared_steps_once_then_each_model_in_order(tmp_path):
                                       "modeling:model3", "evaluation:model3"]
     assert steps[2].runs == ["fake_agent.py modeling 2 data/processed/modeling_agent"]
     assert steps[2].inputs == ["data/processed/model2_table.parquet"]
+
+
+def test_plan_steps_adds_sure_things_for_model_3_only_when_the_spec_defines_it(tmp_path):
+    root, spec = make_repo(tmp_path)
+    # Not in this fixture's spec (mirrors a spec from before the step existed): quietly skipped, not an error.
+    steps = plan_steps(spec, [1, 2, 3], root=root)
+    assert "sure_things:model3" not in [s.key for s in steps]
+
+    spec["steps"]["sure_things"] = {"agent": "Modeling Agent", "runs": ["fake_agent.py sure_things {n} -"],
+                                    "inputs": ["{tables}/model{n}_table.parquet"],
+                                    "outputs": ["{tables}/model3_sure_things.json"]}
+    steps = plan_steps(spec, [1, 2, 3], root=root)
+    keys = [s.key for s in steps]
+    assert "sure_things:model3" in keys
+    assert "sure_things:model1" not in keys and "sure_things:model2" not in keys
+    assert keys[-1] == "sure_things:model3"   # appended at the end, so existing positional slicing is unaffected
+
+
+def test_read_sure_things_reports_auc_and_lift_in_plain_words(tmp_path):
+    (tmp_path / "data/processed").mkdir(parents=True)
+    (tmp_path / "data/processed/model3_sure_things.json").write_text(json.dumps({
+        "n_train": 1842, "n_test": 1387, "auc": 0.675, "base_rate": 0.538, "top_fifth_rate": 0.729,
+        "top_features": {"a": 0.28},
+    }))
+    step = Step("sure_things", "Modeling Agent", 3, [], [], [], {"tables": "data/processed"}, None, None)
+    report = read_sure_things(tmp_path, step)
+    assert report["stopped"] is None and report["questions"] == []
+    assert "AUC 0.675" in report["produced"][0]
+    assert "72.9%" in report["produced"][0] and "53.8%" in report["produced"][0]
+    assert report["facts"]["n_test"] == 1387
 
 
 def test_fingerprint_follows_content_not_file_dates(tmp_path):

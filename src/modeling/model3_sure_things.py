@@ -15,6 +15,7 @@ Input : data/processed/model3_table.parquet (from src/features/build_2b.py), tre
 Output: prints results to the console and writes data/processed/model3_sure_things_report.md
 """
 import argparse
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -135,7 +136,19 @@ def main() -> None:
 
     report_path = args.processed / "model3_sure_things_report.md"
     report_path.write_text(render_report(result))
+
+    # A small JSON alongside the written report, for the Lead Agent to read without parsing markdown
+    # -- the same pattern as the Modeling/Evaluation Agents' manifest.json / verdict.json.
+    facts_path = args.processed / "model3_sure_things.json"
+    facts_path.write_text(json.dumps({
+        "n_train": result["n_train"], "n_test": result["n_test"], "auc": round(result["auc"], 4),
+        "base_rate": round(result["capture"]["base_rate"], 4),
+        "top_fifth_rate": round(result["capture"]["top_fifth_rate"], 4),
+        "top_features": result["importances"].head(5).round(4).to_dict(),
+    }, indent=2))
+
     print(f"\nReport: {report_path}")
+    print(f"Facts: {facts_path}")
 
 
 if __name__ == "__main__":
