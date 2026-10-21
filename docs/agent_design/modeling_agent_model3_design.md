@@ -91,13 +91,46 @@ everyday staples (eggs, pasta sauce, cheese, juice) bought without redemption 74
 -- individual-product confirmation of the same pattern as the aggregate 88.2% finding, not a
 separate result.
 
+## Confounder handling as a feature, not a filter
+
+The main outcome excludes any purchase that happened during a display/flyer week, so a household
+can buy the product and still be counted as "didn't buy" if every one of their purchases happened
+to coincide with in-store promotion. That's not fully satisfying: it shrinks the usable sample, and
+display timing isn't random, so it may be removing a specific kind of purchase rather than a random
+slice.
+
+`campaign_promo_share` (Feature Agent 2A, `src/features/outcomes.py`) is the alternative tried
+here: share of a campaign's own weeks where at least one eligible product was on display or in the
+flyer, at any store. It depends only on the campaign's product list (coupon.csv) and the promo
+calendar, never on any household's purchases, so it's known before mailing and safe as a model
+input -- registered under a new `context` role (`src/features/feature_2a_spec.yaml`,
+`src/features/spec.py`), since it's computed by 2A but, unlike the existing `outcome` columns, is
+not household-specific or after-the-fact.
+
+Tested as `confound_aware_t_forest` (owner features + this one column) against the owner's model via
+the Modeling + Evaluation Agents: +0.0039 ipw_stratified_qini, 95% range -0.0031 to +0.0101 --
+inconclusive, a small nudge in the right direction but not yet a proven gain. Kept as a registered
+candidate rather than adopted, so it's tracked and re-checked as more campaigns finish.
+
+## The "sure things" classifier (`model3_product_lookup.py`'s sibling: `model3_sure_things.py`)
+
+Not a second T-learner: control households can never redeem a coupon they never received, so
+`bought_campaign_product_without_redemption` never varies for them, and a classifier can't learn
+from a label with zero variance there. Instead, a single classifier trained only on treated
+households, predicting the same label, directly flags likely wasted sends among people already
+being mailed -- usable as a targeting deprioritization signal independent of the uplift ranking.
+Held-out AUC 0.675; the top 20% most confident predictions are right 72.9% of the time, against a
+53.8% base rate (1.4x).
+
 ## How to run it
 
 ```bash
 python src/modeling/model3_uplift.py --processed data/processed
 python src/modeling/model3_product_lookup.py --top 20   # all campaigns, ranked, saved to CSV
+python src/modeling/model3_sure_things.py --processed data/processed
 ```
 
-Runtime: ~6s for the uplift model, ~3s for the all-campaigns product scan. Writes
-`data/processed/model3_uplift_report.md`, `reports/figures/model3_uplift_qini_curve.png`, and
-`data/processed/model3_product_redemption_summary.csv`.
+Runtime: ~6s for the uplift model, ~3s for the all-campaigns product scan, ~2s for the sure-things
+classifier. Writes `data/processed/model3_uplift_report.md`,
+`reports/figures/model3_uplift_qini_curve.png`, `data/processed/model3_product_redemption_summary.csv`,
+and `data/processed/model3_sure_things_report.md`.
