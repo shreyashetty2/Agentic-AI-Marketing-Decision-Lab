@@ -4,7 +4,7 @@ from pathlib import Path
 import yaml
 
 SPEC_PATH = Path(__file__).with_name("feature_2a_spec.yaml")
-SECTIONS = ("profile", "outcome", "filter", "flag")   # section name = role name
+SECTIONS = ("profile", "context", "outcome", "filter", "flag")   # section name = role name
 
 
 def load_spec(path: Path = SPEC_PATH) -> dict:
