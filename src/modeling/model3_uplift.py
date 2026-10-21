@@ -166,6 +166,83 @@ def train_t_learner_weighted(train: pd.DataFrame):
     return model_t, model_c, treated, control
 
 
+BALANCE_COLUMNS = ["spend_per_week_26w", "campaign_product_spend_per_week_26w",
+                   "coupon_lines_per_week_26w", "past_redemption_rate"]
+
+
+def entropy_balance_weights(treated: pd.DataFrame, control: pd.DataFrame, columns: list[str],
+                           max_iter: int = 200, tol: float = 1e-10) -> np.ndarray | None:
+    """Hainmueller (2012) entropy balancing: weights for the control rows so their weighted mean on
+    `columns` matches the treated group's mean as closely as the data allows -- directly solved for,
+    not hoped for as a side effect of a fitted propensity model (which is what plain IPW does, and
+    why a real gap remains even after weighting). An ATT-style correction: treated rows keep weight 1,
+    control is reweighted to look like the treated population on these columns specifically.
+
+    Returns None if it doesn't converge -- this happens when the treated group's mean sits outside
+    the control group's range on some column (the retailer's heaviest mailed spenders can be more
+    extreme than any control household), which no reweighting can fix; the right answer then is to
+    say so, not to return numbers that look balanced but aren't."""
+    X = control[columns].to_numpy(dtype=float)
+    target = treated[columns].to_numpy(dtype=float).mean(axis=0)
+    mean, std = X.mean(axis=0), X.std(axis=0)
+    std[std == 0] = 1.0
+    Xs, targets = (X - mean) / std, (target - mean) / std
+
+    def weights_and_gap(lam):
+        scores = Xs @ lam
+        scores -= scores.max()
+        w = np.exp(scores)
+        w /= w.sum()
+        return w, w @ Xs - targets                     # E_w[X] - target; want 0
+
+    lam = np.zeros(Xs.shape[1])
+    w, grad = weights_and_gap(lam)
+    for _ in range(max_iter):
+        gap = np.max(np.abs(grad))
+        if gap < tol:
+            return w / w.sum() * len(control)           # rescaled so weights average to 1, like sample_weight
+        hess = (Xs * w[:, None]).T @ Xs - np.outer(w @ Xs, w @ Xs)
+        try:
+            step = np.linalg.solve(hess + 1e-6 * np.eye(len(lam)), grad)
+        except np.linalg.LinAlgError:
+            return None
+        # Undamped Newton can diverge on heavy-tailed data (spend is far from normal) -- a plain
+        # full step blew lambda up to the billions and oscillated on this exact data. Backtrack
+        # (halve the step) until it actually makes progress.
+        alpha = 1.0
+        for _ in range(50):
+            new_lam = lam - alpha * step
+            new_w, new_grad = weights_and_gap(new_lam)
+            if np.max(np.abs(new_grad)) < gap or alpha < 1e-8:
+                break
+            alpha /= 2
+        lam, w, grad = new_lam, new_w, new_grad
+    return w / w.sum() * len(control) if np.max(np.abs(grad)) < tol else None
+
+
+def train_t_learner_entropy_balanced(train: pd.DataFrame):
+    """Same T-learner, but Model C is trained with weights solved to make the control group's mean on
+    the 4 columns the Evaluation Agent checks balance on (modeling_spec.yaml's propensity.balance_columns)
+    match the treated group's directly, instead of relying on a propensity model's indirect fit. Real
+    weights on the full dataset range from 0.5 to ~1,760 -- exact balance on the mean is bought by
+    heavily upweighting a handful of high-spend control households, a real bias/variance tradeoff, not
+    a free win; worth comparing to the plain T-learner's variance, not just its balance number."""
+    treated, control = train[train[TREATMENT] == 1], train[train[TREATMENT] == 0]
+    w = entropy_balance_weights(treated, control, BALANCE_COLUMNS)
+    if w is None:
+        # Falling back silently here would make "didn't converge" look identical to "converged, no
+        # difference" -- exactly the bug that produced a zero-width, zero-gap result on one real run.
+        print("[warn] entropy balancing did not converge; owner_t_forest_entropy_balanced fell back "
+              "to the plain T-learner's weighting (every weight = 1) -- treat its score as untested, "
+              "not as evidence balancing doesn't help.")
+        w = np.ones(len(control))
+    model_t = RandomForestClassifier(n_estimators=300, max_depth=6, min_samples_leaf=20, random_state=42)
+    model_c = RandomForestClassifier(n_estimators=300, max_depth=6, min_samples_leaf=20, random_state=42)
+    model_t.fit(treated[FEATURES], treated[LABEL])
+    model_c.fit(control[FEATURES], control[LABEL], sample_weight=w)
+    return model_t, model_c, treated, control
+
+
 def x_learner_combine(tau0_pred: np.ndarray, tau1_pred: np.ndarray, propensity: np.ndarray) -> np.ndarray:
     """tau(x) = e(x)*tau1(x) + (1-e(x))*tau0(x). tau1 is fit on treated units' pseudo-outcomes, so it
     has real sample support where propensity is high (mostly treated nearby) -- it should dominate
