@@ -194,6 +194,10 @@ models:
       # X-learner (Kunzel et al. 2019): built for the ~12:1 treated/control imbalance a plain T-learner
       # handles badly. See train_x_learner() in model3_uplift.py.
       owner_x_learner: {source: owner, owner_learner: x_learner, family: x_learner, params: {}, complexity: 3}
+      # X-learner, also given campaign_promo_share (the confounder-as-feature column) -- the one
+      # combination not yet tested: does the confounder-aware column help the one approach that's
+      # actually shown a real gain?
+      owner_x_learner_confound_aware: {source: owner, owner_learner: x_learner_confound_aware, family: x_learner, params: {}, complexity: 3}
       # Doubly-robust (AIPW) learner: one regressor fit on a pseudo-outcome that stays unbiased if
       # either the outcome models or the propensity model is right, not both. See train_dr_learner().
       owner_dr_learner: {source: owner, owner_learner: dr_learner, family: dr_learner, params: {}, complexity: 3}
