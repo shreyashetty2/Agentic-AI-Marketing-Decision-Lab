@@ -48,6 +48,9 @@ def fit_owner(model_id: int, owner_learner: str, train: pd.DataFrame, candidate_
         if owner_learner == "forest_weighted":
             model_t, model_c, _, _ = model3_uplift.train_t_learner_weighted(train)
             return Fitted(candidate_id, "uplift", features, treated_model=model_t, control_model=model_c)
+        if owner_learner == "forest_entropy_balanced":
+            model_t, model_c, _, _ = model3_uplift.train_t_learner_entropy_balanced(train)
+            return Fitted(candidate_id, "uplift", features, treated_model=model_t, control_model=model_c)
         if owner_learner == "x_learner":
             return Fitted(candidate_id, "regress", features, estimator=model3_uplift.train_x_learner(train))
         if owner_learner == "dr_learner":
