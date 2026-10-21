@@ -10,7 +10,7 @@ TOP_N = 3   # columns listed per model in "What each model leans on"
 def render_report(table: pd.DataFrame, health: pd.DataFrame, decisions: pd.DataFrame,
                   checks: list[str], spec: dict) -> str:
     roles = column_roles(spec)
-    added = {section: len(spec[section]) for section in ("profile", "outcome", "filter", "flag")}
+    added = {section: len(spec[section]) for section in ("profile", "context", "outcome", "filter", "flag")}
     noted = decisions[decisions["decision"] == "accept_with_note"]
     accepted = decisions[decisions["decision"] == "accept"]
 
