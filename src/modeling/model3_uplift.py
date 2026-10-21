@@ -254,14 +254,20 @@ def x_learner_combine(tau0_pred: np.ndarray, tau1_pred: np.ndarray, propensity: 
 class _CombinedEstimator:
     """A single object exposing .predict(X) -> uplift score, so it slots into Fitted(kind="regress")
     with no changes to the scoring code. feature_importances_ is the average of the two sub-models',
-    so importances() still works if this is ever picked as a model's default."""
-    def __init__(self, tau0, tau1, combine, features):
-        self.tau0, self.tau1, self.combine, self.features = tau0, tau1, combine, features
+    so importances() still works if this is ever picked as a model's default.
+
+    combine() is a plain method, not a closure over propensity_model -- a closure isn't picklable
+    (caught for real: saving this as the model in use failed with PicklingError, since joblib/pickle
+    can't serialize a function defined inside another function). Keeping propensity_model as a
+    regular attribute makes the whole object an ordinary, picklable bag of sklearn/lightgbm models."""
+    def __init__(self, tau0, tau1, propensity_model, features):
+        self.tau0, self.tau1, self.propensity_model, self.features = tau0, tau1, propensity_model, features
         self.feature_importances_ = (tau0.feature_importances_ + tau1.feature_importances_) / 2
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         X = X[self.features]
-        return self.combine(X, self.tau0.predict(X), self.tau1.predict(X))
+        g = np.clip(self.propensity_model.predict_proba(X)[:, 1], 0.01, 0.99)
+        return x_learner_combine(self.tau0.predict(X), self.tau1.predict(X), g)
 
 
 CONFOUND_AWARE_FEATURES = FEATURES + ["campaign_promo_share"]
@@ -309,11 +315,7 @@ def train_x_learner(train: pd.DataFrame, features: list[str] = FEATURES) -> _Com
                                       colsample_bytree=0.8, random_state=0, n_jobs=4, verbose=-1)
     propensity_model.fit(train[features], train[TREATMENT])
 
-    def combine(X, tau0_pred, tau1_pred):
-        g = np.clip(propensity_model.predict_proba(X)[:, 1], 0.01, 0.99)
-        return x_learner_combine(tau0_pred, tau1_pred, g)
-
-    return _CombinedEstimator(tau0, tau1, combine, features)
+    return _CombinedEstimator(tau0, tau1, propensity_model, features)
 
 
 class _DRLearnerEstimator:
