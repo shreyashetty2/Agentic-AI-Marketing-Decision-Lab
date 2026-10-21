@@ -174,11 +174,16 @@ models:
                  campaign_product_spend_per_week_26w, campaign_product_share_26w,
                  history_weeks_before_cutoff, duration_days,
                  trips_per_week_8w, n_departments_26w, past_campaigns_received, past_campaigns_redeemed]
+      confound_aware: [spend_per_week_8w, spend_per_week_26w, avg_basket_value_26w, trips_per_week_26w,
+                 coupon_lines_per_week_26w, share_spend_on_discount_26w, past_redemption_rate,
+                 campaign_product_spend_per_week_26w, campaign_product_share_26w,
+                 history_weeks_before_cutoff, duration_days, campaign_promo_share]
     candidates:   # features: owner = the owner's own FEATURES constant, read from their script
       owner_t_forest:    {source: owner, owner_learner: forest, family: forest, params: *forest, complexity: 2}
       owner_t_logistic:  {source: agent, family: logistic, features: owner, params: {max_iter: 2000}, complexity: 1}
       extended_t_forest: {source: agent, family: forest, features: extended, params: *forest, complexity: 2}
       shallower_t_forest: {source: agent, family: forest, features: owner, params: *forest_shallower, complexity: 2}
+      confound_aware_t_forest: {source: agent, family: forest, features: confound_aware, params: *forest, complexity: 2}
     default: owner_t_forest
     forward_chain: {min_train_treated: 300}
     locked_test_campaigns: 4

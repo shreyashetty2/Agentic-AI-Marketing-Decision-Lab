@@ -21,7 +21,7 @@ def _built(tables, causal):
 def test_every_added_column_gets_one_decision(tables, causal):
     spec, table, health = _built(tables, causal)
     decisions = decide_columns(table, health, spec, leak_cleared=[])
-    added = [c for s in ("profile", "outcome", "filter", "flag") for c in spec[s]]
+    added = [c for s in ("profile", "context", "outcome", "filter", "flag") for c in spec[s]]
     assert list(decisions.index) == added
     assert set(decisions["decision"]) <= {"accept", "accept_with_note"}
 

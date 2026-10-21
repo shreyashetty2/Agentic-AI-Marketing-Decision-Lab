@@ -8,12 +8,12 @@ from features.spec import load_spec, column_roles
 def test_spec_is_consistent():
     spec = load_spec()
     roles = column_roles(spec)
-    listed = list(spec["passthrough"]) + [c for s in ("profile", "outcome", "filter", "flag") for c in spec[s]]
+    listed = list(spec["passthrough"]) + [c for s in ("profile", "context", "outcome", "filter", "flag") for c in spec[s]]
     assert len(listed) == len(roles), "a column is listed in more than one section"
     assert set(roles.values()) <= {"key", "context", "profile", "outcome", "filter", "flag"}
     known = set(spec["blank_reasons"])
     assert known == set(_reason_masks(pd.DataFrame()))      # every reason in the spec has code that detects it
-    for section in ("profile", "outcome", "filter", "flag"):
+    for section in ("profile", "context", "outcome", "filter", "flag"):
         for col, body in spec[section].items():
             assert body.get("desc"), col
             assert set(body.get("blank_when", [])) <= known, col

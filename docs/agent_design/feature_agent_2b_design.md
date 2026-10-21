@@ -38,15 +38,15 @@ same as 2A's design doc says.
     74 of 435 campaign pairs overlap in time, so this isn't a rare edge case. 19,104 of the 62,500
     TypeB/C rows are excluded for this reason (`mailed_overlapping_campaign == 1`), leaving 43,396.
 
-## Redemption-segmentation refinement (mentor feedback, 10/9 meeting)
+## Redemption-segmentation refinement
 
 Model 3's main outcome (`bought_campaign_product_excl_display_flyer`) counts any qualifying
 purchase as a campaign "success" -- including a household that bought the product without ever
-using the coupon, who would plausibly have bought it anyway. The mentor asked us to check this
-directly instead of only inferring it from spend levels. `bought_campaign_product_without_redemption`
-(now Model 3's second sensitivity label, alongside the display-only variant) answers it: for
-treated households, 1 if they bought the product but that purchase wasn't tied to a coupon they
-actually redeemed for this campaign.
+using the coupon, who would plausibly have bought it anyway. Checking this directly, instead of
+only inferring it from spend levels, is what `bought_campaign_product_without_redemption`
+(now Model 3's second sensitivity label, alongside the display-only variant) does: for treated
+households, 1 if they bought the product but that purchase wasn't tied to a coupon they actually
+redeemed for this campaign.
 
 **Real result:** of the 1,596 treated TypeB/C households who bought an eligible product, only 189
 (11.8%) did so via an actually-redeemed coupon -- the other 1,407 (88.2%) bought it without ever

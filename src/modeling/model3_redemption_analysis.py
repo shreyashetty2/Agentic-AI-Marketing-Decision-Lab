@@ -1,4 +1,4 @@
-"""Model 3 redemption-segmentation analysis (mentor feedback, 10/9 meeting).
+"""Model 3 redemption-segmentation analysis.
 
 Model 3's main outcome counts any qualifying purchase as a campaign "success", even if the
 household never used the coupon. This script splits treated purchasers by whether their purchase
@@ -50,8 +50,8 @@ def render_report(result: dict) -> str:
     table = result["by_campaign"].to_string()
     return f"""# Model 3: redemption-segmentation analysis
 
-Mentor feedback (10/9 meeting): check directly whether treated households who bought the
-eligible product actually used the coupon, rather than inferring it from spend level alone.
+Checks directly whether treated households who bought the eligible product actually used the
+coupon, rather than inferring it from spend level alone.
 
 ## Headline result
 
