@@ -25,3 +25,11 @@ rules:
   answer: Yes, obvious decision.
   decided_by: Pranav Jain
   decided_on: '2026-10-20'
+- question: evaluation:3:measure_note
+  rule: Model 3 is judged on the propensity-weighted, within-campaign Qini (ipw_stratified_qini), not the unweighted
+    pooled Qini. It already combines common-support trimming (rows outside in_overlap are dropped) with inverse-propensity
+    weighting inside that region, which is a more complete fix for non-random targeting than trimming alone.
+  answer: Accepted. ipw_stratified_qini already restricts to the overlap region (in_overlap) before weighting, which
+    is the common-support fix I'd been planning to add separately -- no need to build a second one.
+  decided_by: Shreya Shetty
+  decided_on: '2026-10-21'
