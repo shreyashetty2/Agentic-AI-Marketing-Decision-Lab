@@ -264,10 +264,15 @@ class _CombinedEstimator:
         return self.combine(X, self.tau0.predict(X), self.tau1.predict(X))
 
 
-def train_x_learner(train: pd.DataFrame) -> _CombinedEstimator:
+CONFOUND_AWARE_FEATURES = FEATURES + ["campaign_promo_share"]
+
+
+def train_x_learner(train: pd.DataFrame, features: list[str] = FEATURES) -> _CombinedEstimator:
     """X-learner (Kunzel et al. 2019): built for exactly this dataset's problem -- a ~12:1
     treated/control imbalance, where a plain T-learner's two models are fit on wildly different
-    sample sizes and their errors don't cancel.
+    sample sizes and their errors don't cancel. Already weights by propensity internally (stage 3
+    below) -- this is not a plain, unweighted T-learner with extra steps; the weighting is the whole
+    point of the combine step.
 
     Stage 1: the same plain T-learner as train_t_learner() (model_t on treated, model_c on control).
     Stage 2: each unit's imputed treatment effect, using the OTHER group's model as its counterfactual
@@ -276,16 +281,24 @@ def train_x_learner(train: pd.DataFrame) -> _CombinedEstimator:
     Stage 3: combine by propensity: tau(x) = e(x)*tau1(x) + (1-e(x))*tau0(x). Where e(x) is high
     (mostly treated nearby), tau1 is the one with real sample support there, so it gets the larger
     weight; symmetrically for tau0 where e(x) is low. (Verified on a synthetic check, not just
-    recalled: see tests/modeling/test_model3_uplift.py.)"""
-    model_t, model_c, treated, control = train_t_learner(train)
+    recalled: see tests/modeling/test_model3_uplift.py.)
 
-    d_treated = treated[LABEL].to_numpy(dtype=float) - model_c.predict_proba(treated[FEATURES])[:, 1]
-    d_control = model_t.predict_proba(control[FEATURES])[:, 1] - control[LABEL].to_numpy(dtype=float)
+    `features` defaults to the owner's standard column list; pass CONFOUND_AWARE_FEATURES to also
+    give it campaign_promo_share (tested as a separate candidate, not folded into the default)."""
+    treated_mask = train[TREATMENT] == 1
+    treated, control = train[treated_mask], train[~treated_mask]
+    model_t = RandomForestClassifier(n_estimators=300, max_depth=6, min_samples_leaf=20, random_state=42)
+    model_c = RandomForestClassifier(n_estimators=300, max_depth=6, min_samples_leaf=20, random_state=42)
+    model_t.fit(treated[features], treated[LABEL])
+    model_c.fit(control[features], control[LABEL])
+
+    d_treated = treated[LABEL].to_numpy(dtype=float) - model_c.predict_proba(treated[features])[:, 1]
+    d_control = model_t.predict_proba(control[features])[:, 1] - control[LABEL].to_numpy(dtype=float)
 
     tau1 = RandomForestRegressor(n_estimators=300, max_depth=6, min_samples_leaf=20, random_state=42)
     tau0 = RandomForestRegressor(n_estimators=300, max_depth=6, min_samples_leaf=20, random_state=42)
-    tau1.fit(treated[FEATURES], d_treated)
-    tau0.fit(control[FEATURES], d_control)
+    tau1.fit(treated[features], d_treated)
+    tau0.fit(control[features], d_control)
 
     # The combining step needs e(x) at SCORING time (any row handed to .predict() later, not just
     # these training rows), so it gets its own propensity model rather than reusing the training-time
@@ -294,13 +307,13 @@ def train_x_learner(train: pd.DataFrame) -> _CombinedEstimator:
     propensity_model = LGBMClassifier(n_estimators=400, learning_rate=0.03, num_leaves=31,
                                       min_child_samples=50, subsample=0.8, subsample_freq=1,
                                       colsample_bytree=0.8, random_state=0, n_jobs=4, verbose=-1)
-    propensity_model.fit(train[FEATURES], train[TREATMENT])
+    propensity_model.fit(train[features], train[TREATMENT])
 
     def combine(X, tau0_pred, tau1_pred):
         g = np.clip(propensity_model.predict_proba(X)[:, 1], 0.01, 0.99)
         return x_learner_combine(tau0_pred, tau1_pred, g)
 
-    return _CombinedEstimator(tau0, tau1, combine, FEATURES)
+    return _CombinedEstimator(tau0, tau1, combine, features)
 
 
 class _DRLearnerEstimator:
