@@ -184,6 +184,16 @@ models:
       extended_t_forest: {source: agent, family: forest, features: extended, params: *forest, complexity: 2}
       shallower_t_forest: {source: agent, family: forest, features: owner, params: *forest_shallower, complexity: 2}
       confound_aware_t_forest: {source: agent, family: forest, features: confound_aware, params: *forest, complexity: 2}
+      # Same T-learner as owner_t_forest, but trained with the Evaluation Agent's own inverse-propensity
+      # weights, restricted to the overlap region -- closes the train/evaluate mismatch where the model
+      # optimizes a plain difference of probabilities while being judged on a weighted one.
+      owner_t_forest_weighted: {source: owner, owner_learner: forest_weighted, family: forest, params: *forest, complexity: 2}
+      # X-learner (Kunzel et al. 2019): built for the ~12:1 treated/control imbalance a plain T-learner
+      # handles badly. See train_x_learner() in model3_uplift.py.
+      owner_x_learner: {source: owner, owner_learner: x_learner, family: x_learner, params: {}, complexity: 3}
+      # Doubly-robust (AIPW) learner: one regressor fit on a pseudo-outcome that stays unbiased if
+      # either the outcome models or the propensity model is right, not both. See train_dr_learner().
+      owner_dr_learner: {source: owner, owner_learner: dr_learner, family: dr_learner, params: {}, complexity: 3}
     default: owner_t_forest
     forward_chain: {min_train_treated: 300}
     locked_test_campaigns: 4

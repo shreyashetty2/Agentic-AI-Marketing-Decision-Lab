@@ -22,7 +22,7 @@ from sklearn.model_selection import GroupKFold
 from modeling.model1_evaluation import within_campaign_auc, within_campaign_capture
 
 __all__ = ["within_campaign_auc", "within_campaign_capture", "mae", "stratified_qini", "fit_propensity",
-           "balance", "cluster_bootstrap", "forecast_coverage", "METRICS", "metric"]
+           "balance", "cluster_bootstrap", "forecast_coverage", "e_value", "METRICS", "metric"]
 
 
 def mae(label, score) -> float:
@@ -132,6 +132,19 @@ def forecast_coverage(per_campaign: pd.DataFrame, z: float = 1.96) -> dict:
         inside.append(row["expected"] - half <= row["actual"] <= row["expected"] + half)
         phis.append(phi)
     return {"coverage": float(np.mean(inside)), "n": len(pc), "inside": inside, "phi": phis}
+
+
+def e_value(treated_rate: float, control_rate: float) -> float:
+    """VanderWeele & Ding (2017): how strong an unmeasured confounder's association with both
+    treatment and outcome would need to be, on the risk-ratio scale, to fully explain away an
+    observed effect -- the number the balance/overlap checks above can't give, since those only
+    confirm covariates we measured are balanced, never that nothing unmeasured is driving the gap.
+    Only meaningful for an effect estimate that's actually there (RR != 1); returns None otherwise."""
+    if control_rate <= 0 or treated_rate <= 0 or np.isclose(treated_rate, control_rate):
+        return None
+    rr = treated_rate / control_rate
+    rr = 1 / rr if rr < 1 else rr   # the formula assumes RR >= 1; direction doesn't change the answer
+    return float(rr + np.sqrt(rr * (rr - 1)))
 
 
 # name -> (function(predictions) -> float, higher_is_better)

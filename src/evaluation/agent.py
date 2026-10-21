@@ -41,7 +41,9 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # lets `evaluation.*` / `modeling.*` import as a script
 
-from evaluation.metrics import balance, cluster_bootstrap, forecast_coverage, metric, within_campaign_capture  # noqa: E402
+from evaluation.metrics import (  # noqa: E402
+    balance, cluster_bootstrap, e_value, forecast_coverage, metric, within_campaign_capture,
+)
 from modeling.model1_evaluation import random_expected_capture  # noqa: E402
 from evaluation.rules import gap_status, route  # noqa: E402
 from modeling.agent import SPEC_PATH as MODELING_SPEC_PATH, file_hash, load_modeling_spec  # noqa: E402
@@ -179,11 +181,17 @@ def calibration(kind: str, cfg: dict, d: pd.DataFrame, default: str) -> dict:
     o = d[d["in_overlap"]]
     t, c = o[o["treatment"] == 1], o[o["treatment"] == 0]
     w = c["propensity"] / (1 - c["propensity"])
-    att = float(t["label"].mean() - (w * c["label"]).sum() / w.sum())
+    weighted_control_rate = (w * c["label"]).sum() / w.sum()
+    att = float(t["label"].mean() - weighted_control_rate)
     predicted = float(t[default].mean())
+    ev = e_value(float(t["label"].mean()), float(weighted_control_rate))
+    ev_note = (f" An unmeasured confounder would need risk-ratio association >= {ev:.2f} with both "
+               "mailing and buying to fully explain away this gap -- the balance/overlap checks above "
+               "only confirm measured columns are balanced, never that nothing unmeasured is." if ev else "")
     return {"ok": abs(predicted - att) <= cfg["max_abs_error"], "predicted_uplift": predicted, "weighted_att": att,
+            "e_value": ev,
             "summary": f"mean predicted uplift on mailed households {predicted:.3f} vs. weighted estimate {att:.3f} "
-                       f"(need within {cfg['max_abs_error']})"}
+                       f"(need within {cfg['max_abs_error']}).{ev_note}"}
 
 
 def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None, modeling_dir: Path | None = None,

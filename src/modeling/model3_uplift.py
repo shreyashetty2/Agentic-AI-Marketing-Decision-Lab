@@ -16,13 +16,16 @@ Output: prints results to the console, writes data/processed/model3_uplift_repor
         reports/figures/model3_uplift_qini_curve.png
 """
 import argparse
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from scipy.stats import norm, spearmanr
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.metrics import roc_auc_score
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # lets `evaluation.*` import as a script
 
 LABEL = "bought_campaign_product_excl_display_flyer"
 WITHOUT_REDEMPTION = "bought_campaign_product_without_redemption"
@@ -129,6 +132,133 @@ def train_t_learner(train: pd.DataFrame):
     model_t.fit(treated[FEATURES], treated[LABEL])
     model_c.fit(control[FEATURES], control[LABEL])   # full control group, not subsampled
     return model_t, model_c, treated, control
+
+
+def _propensity(train: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """(propensity, ipw_weight) per row. Reuses the Modeling Agent's own columns when they're already
+    on the table (so these estimators are weighted by the exact same propensity model the Evaluation
+    Agent judges them with); otherwise fits one standalone, for running this file on its own."""
+    if "propensity" in train.columns and "ipw_weight" in train.columns:
+        return train["propensity"].to_numpy(), train["ipw_weight"].to_numpy()
+    from evaluation.metrics import fit_propensity
+    e = fit_propensity(train, FEATURES, TREATMENT, folds=5, clip=(0.01, 0.99))
+    t = train[TREATMENT].to_numpy()
+    return e, np.where(t == 1, 1 / e, 1 / (1 - e))
+
+
+def train_t_learner_weighted(train: pd.DataFrame):
+    """Same T-learner as train_t_learner(), but trained on the same correction the Evaluation Agent
+    scores it with: inverse-propensity weights, restricted to the overlap region (the range of
+    households where mailed and unmailed are actually comparable). Without this, the model optimizes
+    a plain difference of probabilities while being judged on a propensity-weighted one -- a
+    train/evaluation mismatch that this closes."""
+    e, w = _propensity(train)
+    overlap = (e >= 0.02) & (e <= 0.98)   # same bounds as modeling_spec.yaml's propensity.overlap for model 3
+    w = w[overlap]
+    train = train.loc[overlap]
+    treated_mask = (train[TREATMENT] == 1).to_numpy()
+    treated, control = train[treated_mask], train[~treated_mask]
+    w_t, w_c = w[treated_mask], w[~treated_mask]
+    model_t = RandomForestClassifier(n_estimators=300, max_depth=6, min_samples_leaf=20, random_state=42)
+    model_c = RandomForestClassifier(n_estimators=300, max_depth=6, min_samples_leaf=20, random_state=42)
+    model_t.fit(treated[FEATURES], treated[LABEL], sample_weight=w_t)
+    model_c.fit(control[FEATURES], control[LABEL], sample_weight=w_c)
+    return model_t, model_c, treated, control
+
+
+def x_learner_combine(tau0_pred: np.ndarray, tau1_pred: np.ndarray, propensity: np.ndarray) -> np.ndarray:
+    """tau(x) = e(x)*tau1(x) + (1-e(x))*tau0(x). tau1 is fit on treated units' pseudo-outcomes, so it
+    has real sample support where propensity is high (mostly treated nearby) -- it should dominate
+    there; symmetrically, tau0 (fit on control units) should dominate where propensity is low. Pulled
+    out of train_x_learner() so this direction is unit-tested directly, not just reasoned about."""
+    return propensity * tau1_pred + (1 - propensity) * tau0_pred
+
+
+class _CombinedEstimator:
+    """A single object exposing .predict(X) -> uplift score, so it slots into Fitted(kind="regress")
+    with no changes to the scoring code. feature_importances_ is the average of the two sub-models',
+    so importances() still works if this is ever picked as a model's default."""
+    def __init__(self, tau0, tau1, combine, features):
+        self.tau0, self.tau1, self.combine, self.features = tau0, tau1, combine, features
+        self.feature_importances_ = (tau0.feature_importances_ + tau1.feature_importances_) / 2
+
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        X = X[self.features]
+        return self.combine(X, self.tau0.predict(X), self.tau1.predict(X))
+
+
+def train_x_learner(train: pd.DataFrame) -> _CombinedEstimator:
+    """X-learner (Kunzel et al. 2019): built for exactly this dataset's problem -- a ~12:1
+    treated/control imbalance, where a plain T-learner's two models are fit on wildly different
+    sample sizes and their errors don't cancel.
+
+    Stage 1: the same plain T-learner as train_t_learner() (model_t on treated, model_c on control).
+    Stage 2: each unit's imputed treatment effect, using the OTHER group's model as its counterfactual
+      -- D_i = Y_i - model_c.predict_proba(X_i) for treated i; D_i = model_t.predict_proba(X_i) - Y_i
+      for control i -- then a regressor fit on each group's own D (tau1 on treated, tau0 on control).
+    Stage 3: combine by propensity: tau(x) = e(x)*tau1(x) + (1-e(x))*tau0(x). Where e(x) is high
+    (mostly treated nearby), tau1 is the one with real sample support there, so it gets the larger
+    weight; symmetrically for tau0 where e(x) is low. (Verified on a synthetic check, not just
+    recalled: see tests/modeling/test_model3_uplift.py.)"""
+    model_t, model_c, treated, control = train_t_learner(train)
+
+    d_treated = treated[LABEL].to_numpy(dtype=float) - model_c.predict_proba(treated[FEATURES])[:, 1]
+    d_control = model_t.predict_proba(control[FEATURES])[:, 1] - control[LABEL].to_numpy(dtype=float)
+
+    tau1 = RandomForestRegressor(n_estimators=300, max_depth=6, min_samples_leaf=20, random_state=42)
+    tau0 = RandomForestRegressor(n_estimators=300, max_depth=6, min_samples_leaf=20, random_state=42)
+    tau1.fit(treated[FEATURES], d_treated)
+    tau0.fit(control[FEATURES], d_control)
+
+    # The combining step needs e(x) at SCORING time (any row handed to .predict() later, not just
+    # these training rows), so it gets its own propensity model rather than reusing the training-time
+    # e/ipw_weight arrays, which only cover these rows.
+    from lightgbm import LGBMClassifier
+    propensity_model = LGBMClassifier(n_estimators=400, learning_rate=0.03, num_leaves=31,
+                                      min_child_samples=50, subsample=0.8, subsample_freq=1,
+                                      colsample_bytree=0.8, random_state=0, n_jobs=4, verbose=-1)
+    propensity_model.fit(train[FEATURES], train[TREATMENT])
+
+    def combine(X, tau0_pred, tau1_pred):
+        g = np.clip(propensity_model.predict_proba(X)[:, 1], 0.01, 0.99)
+        return x_learner_combine(tau0_pred, tau1_pred, g)
+
+    return _CombinedEstimator(tau0, tau1, combine, FEATURES)
+
+
+class _DRLearnerEstimator:
+    """A single regressor fit directly on the AIPW pseudo-outcome -- unlike the X-learner, there's
+    only one model here, trained on every row (treated and control alike)."""
+    def __init__(self, model, features):
+        self.model, self.features = model, features
+        self.feature_importances_ = model.feature_importances_
+
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        return self.model.predict(X[self.features])
+
+
+def train_dr_learner(train: pd.DataFrame) -> _DRLearnerEstimator:
+    """Doubly-robust (AIPW) learner: the per-unit pseudo-outcome
+
+        gamma_i = (mu1(X_i) - mu0(X_i)) + T_i/e(X_i) * (Y_i - mu1(X_i)) - (1-T_i)/(1-e(X_i)) * (Y_i - mu0(X_i))
+
+    is an unbiased estimate of household i's treatment effect if EITHER the outcome models (mu1,
+    mu0 -- the plain T-learner) OR the propensity model (e) is correctly specified, not both at once
+    -- "doubly robust" means two independent chances to be right, not that it's twice as reliable.
+    A single regressor is then fit directly on gamma, over every row (no treated/control split at
+    this stage, unlike the T- and X-learners) -- its prediction on new rows IS the CATE estimate."""
+    model_t, model_c, _, _ = train_t_learner(train)
+    e, _ = _propensity(train)
+    e = np.clip(e, 0.02, 0.98)
+    t = train[TREATMENT].to_numpy()
+    y = train[LABEL].to_numpy(dtype=float)
+    mu1 = model_t.predict_proba(train[FEATURES])[:, 1]
+    mu0 = model_c.predict_proba(train[FEATURES])[:, 1]
+    gamma = (mu1 - mu0) + t / e * (y - mu1) - (1 - t) / (1 - e) * (y - mu0)
+
+    model = RandomForestRegressor(n_estimators=300, max_depth=6, min_samples_leaf=20, random_state=42)
+    model.fit(train[FEATURES], gamma)
+    return _DRLearnerEstimator(model, FEATURES)
 
 
 def evaluate(model_t, model_c, test: pd.DataFrame) -> dict:
