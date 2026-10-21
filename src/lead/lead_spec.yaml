@@ -57,6 +57,15 @@ steps:
              src/evaluation/*.py, src/evaluation/evaluation_spec.yaml, src/modeling/modeling_spec.yaml]
     outputs: ["{evals}/model{n}/verdict.json"]
 
+  sure_things:         # Model 3 only: a standalone tool, not a competing uplift candidate -- no verdict,
+                       # no options, just its own held-out numbers (src/modeling/model3_sure_things.py).
+    agent: Modeling Agent
+    runs:
+      - src/modeling/model3_sure_things.py --processed {tables}
+    inputs: ["{tables}/model3_table.parquet", src/modeling/model3_sure_things.py]
+    outputs: ["{tables}/model3_sure_things.json"]
+    outputs: ["{evals}/model{n}/verdict.json"]
+
 # {proposals}: in a normal run, the ideas a person approved in {models}/model{n}/proposals.yaml are tested
 # as extra options (--proposals --iteration R, R = the latest round approved); approving one is a change to
 # that file, so the model runs again. A replay never uses them.
