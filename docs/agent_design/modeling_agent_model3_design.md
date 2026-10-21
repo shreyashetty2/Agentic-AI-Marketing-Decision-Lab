@@ -122,6 +122,36 @@ being mailed -- usable as a targeting deprioritization signal independent of the
 Held-out AUC 0.675; the top 20% most confident predictions are right 72.9% of the time, against a
 53.8% base rate (1.4x).
 
+## Closing the train/evaluate gap, and three causal-inference candidates
+
+The Evaluation Agent judges this model on a propensity-weighted, overlap-restricted Qini
+(`ipw_stratified_qini`), but `train_t_learner()` fits on the raw data with no weights at all -- a
+train/evaluate mismatch. Four candidates close it or try to do better, all registered in
+`modeling_spec.yaml` and judged by the exact same Modeling + Evaluation Agent machinery as every
+other candidate (no separate comparison hand-rolled):
+
+- **`owner_t_forest_weighted`** (`train_t_learner_weighted()`): the same T-learner, trained with the
+  evaluator's own inverse-propensity weights, restricted to the overlap region. Result: +0.0027 vs.
+  the owner's model on open test campaigns (range -0.0168 to +0.0231) -- inconclusive. Aligning
+  training with evaluation didn't move the needle much by itself.
+- **`owner_x_learner`** (`train_x_learner()`): X-learner (Kunzel et al. 2019), built for this
+  dataset's ~12:1 treated/control imbalance, where a plain T-learner's two models are fit on wildly
+  different sample sizes. Result: +0.0187 on open campaigns (range +0.0057 to +0.0345) -- the only
+  candidate all along with a positive own-score (0.0077). On the locked campaigns: +0.0103 (range
+  -0.0178 to +0.0422) -- still positive, but no longer statistically clean. Most promising result to
+  date; not yet adopted.
+- **`owner_dr_learner`** (`train_dr_learner()`): doubly-robust (AIPW) learner -- one regressor fit
+  directly on a pseudo-outcome that stays unbiased if either the outcome models or the propensity
+  model is right, not both. Result: -0.0130 on open campaigns, own score -0.0241 (worse than the
+  owner's model) -- the AIPW pseudo-outcome's high variance with a treated group this small likely
+  outweighs its robustness guarantee here. Not pursued further.
+- **E-value** (`src/evaluation/metrics.py: e_value()`): VanderWeele & Ding (2017) -- how strong an
+  unmeasured confounder's association with both mailing and buying would need to be, on the
+  risk-ratio scale, to fully explain away the observed effect. Reported alongside Model 3's existing
+  calibration check. Current value: **1.35** -- a fairly weak hidden confounder could fully explain
+  the result away, a concrete number behind `approve_requires_human: true`'s existing "no rule can
+  check for hidden confounders" caveat.
+
 ## How to run it
 
 ```bash
