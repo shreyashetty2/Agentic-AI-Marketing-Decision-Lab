@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -8,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from modeling.model3_uplift import (  # noqa: E402
     LABEL, TREATMENT, WITHOUT_REDEMPTION, ate_test, demographic_segmentation,
-    redemption_segmentation, spend_tier_segmentation, time_split,
+    redemption_segmentation, spend_tier_segmentation, time_split, x_learner_combine,
 )
 
 
@@ -86,6 +87,27 @@ def test_time_split_is_chronological_and_covers_every_row():
     assert set(train["campaign"]) == {1, 2, 3}      # earliest 3 of 5 campaigns (60%)
     assert set(test["campaign"]) == {4, 5}
     assert train["start_day"].max() < test["start_day"].min()
+
+
+def test_x_learner_combine_favors_tau1_where_mostly_treated():
+    # propensity near 1 (mostly treated nearby): tau1 (fit on treated pseudo-outcomes, real sample
+    # support here) should dominate -- the combined value should sit close to tau1, far from tau0.
+    tau0, tau1, g = np.array([0.0]), np.array([1.0]), np.array([0.99])
+    combined = x_learner_combine(tau0, tau1, g)
+    assert combined[0] == pytest.approx(0.99)
+
+
+def test_x_learner_combine_favors_tau0_where_mostly_control():
+    # propensity near 0 (mostly control nearby): tau0 should dominate instead.
+    tau0, tau1, g = np.array([0.0]), np.array([1.0]), np.array([0.01])
+    combined = x_learner_combine(tau0, tau1, g)
+    assert combined[0] == pytest.approx(0.01)
+
+
+def test_x_learner_combine_is_the_simple_weighted_average():
+    tau0, tau1, g = np.array([2.0, -1.0]), np.array([4.0, 3.0]), np.array([0.25, 0.75])
+    combined = x_learner_combine(tau0, tau1, g)
+    assert combined == pytest.approx([0.25 * 4.0 + 0.75 * 2.0, 0.75 * 3.0 + 0.25 * -1.0])
 
 
 def test_demographic_segmentation_excludes_no_demographics_rows_and_small_categories():
