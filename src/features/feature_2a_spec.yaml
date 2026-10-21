@@ -22,7 +22,8 @@ settings:
 
 # Column roles tell 2B and the Modeling Agent what each column may be used for:
 #   key      identifies the row
-#   context  known before the campaign; safe as a model input
+#   context  known before the campaign; safe as a model input (passthrough = from the spine unchanged;
+#            the context: section below = computed by 2A, but still knowable before mailing)
 #   profile  built by 2A from data before cutoff_day; safe as a model input
 #   outcome  measured during the campaign window; NEVER a model input
 #   filter   for choosing rows in 2B; NEVER a model input
@@ -122,6 +123,15 @@ profile:
   classification_5: {desc: "Demographic label (anonymised; ordered groups).", blank_when: [no_demographics]}
   homeowner_desc: {desc: "Homeowner status label.", blank_when: [no_demographics]}
   kid_category_desc: {desc: "Number-of-kids label.", blank_when: [no_demographics]}
+
+context:   # known before mailing, computed by 2A (not a spine passthrough); safe as a model input
+  campaign_promo_share:
+    desc: >
+      Share of this campaign's own weeks where at least one eligible product was on display or in
+      the flyer, at any store. Depends only on the campaign's product list (coupon.csv) and the
+      promo calendar, never on any household's purchases, so it's known in advance and safe as an
+      input -- unlike the household-level outcome, which only exists after the campaign runs.
+    blank_when: [type_a]
 
 outcome:   # measured from start_day to end_day inclusive
   campaign_product_spend_during:
