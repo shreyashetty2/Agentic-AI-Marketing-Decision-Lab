@@ -57,5 +57,5 @@ def column_meanings(spec_path: Path = FEATURE_SPEC) -> dict[str, str]:
     """Each model input's plain meaning, from the Feature Agent's own spec (plus the few columns the owners'
     scripts add themselves)."""
     spec = yaml.safe_load(spec_path.read_text())
-    return {**DERIVED, **{c: v["desc"] for section in ("passthrough", "profile") for c, v in (spec.get(section) or {}).items()
+    return {**DERIVED, **{c: v["desc"] for section in ("passthrough", "profile", "context") for c, v in (spec.get(section) or {}).items()
                           if isinstance(v, dict) and "desc" in v}}
