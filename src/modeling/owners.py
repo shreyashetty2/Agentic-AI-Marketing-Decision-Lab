@@ -45,6 +45,13 @@ def fit_owner(model_id: int, owner_learner: str, train: pd.DataFrame, candidate_
     owner = OWNERS[model_id]
     features = owner_learner_features(model_id, owner_learner)
     if owner["kind"] == "uplift":
+        if owner_learner == "forest_weighted":
+            model_t, model_c, _, _ = model3_uplift.train_t_learner_weighted(train)
+            return Fitted(candidate_id, "uplift", features, treated_model=model_t, control_model=model_c)
+        if owner_learner == "x_learner":
+            return Fitted(candidate_id, "regress", features, estimator=model3_uplift.train_x_learner(train))
+        if owner_learner == "dr_learner":
+            return Fitted(candidate_id, "regress", features, estimator=model3_uplift.train_dr_learner(train))
         model_t, model_c, _, _ = model3_uplift.train_t_learner(train)
         return Fitted(candidate_id, "uplift", features, treated_model=model_t, control_model=model_c)
     if owner_learner == "calibrated":
