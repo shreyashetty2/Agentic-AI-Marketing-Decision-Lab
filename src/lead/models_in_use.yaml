@@ -8,3 +8,14 @@
   decided_on: '2026-10-20'
   why: Totals have to be right for weighing sales against the cost of the discounts, and the error difference could
     be luck.
+3:
+  id: owner_x_learner
+  title: pair of x_learner, one for mailed and one for unmailed households on 11 columns
+  option: true
+  decided_by: Shreya Shetty
+  decided_on: '2026-10-21'
+  why: X-learner shows a real gain over the plain T-learner on open test campaigns (+0.0187 ipw_stratified_qini,
+    95% range +0.0057 to +0.0345), built specifically for this dataset's ~12:1 treated/control imbalance. On the
+    one true locked-campaign check it's directionally positive (+0.0103) but no longer statistically clean -- adopting
+    it as a reasoned bet on the mechanism, not a fully proven result, with the owner's T-learner kept in as a tracked
+    comparison.
