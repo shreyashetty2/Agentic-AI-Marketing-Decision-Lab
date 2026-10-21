@@ -151,7 +151,7 @@ models:
   3:
     name: "True Incremental Uplift"
     owner: "Shreya (model3_uplift.py)"
-    scripts: {current: model3_uplift.py, others: [model3_baseline.py, model3_redemption_analysis.py, model3_product_lookup.py]}
+    scripts: {current: model3_uplift.py, others: [model3_baseline.py, model3_redemption_analysis.py, model3_product_lookup.py, model3_sure_things.py]}
     table: model3_table.parquet
     task: uplift
     label: bought_campaign_product_excl_display_flyer
@@ -188,6 +188,9 @@ models:
       # weights, restricted to the overlap region -- closes the train/evaluate mismatch where the model
       # optimizes a plain difference of probabilities while being judged on a weighted one.
       owner_t_forest_weighted: {source: owner, owner_learner: forest_weighted, family: forest, params: *forest, complexity: 2}
+      # Model C trained with weights solved directly for balance on the 4 columns below, instead of
+      # relying on a propensity model's indirect fit (which still leaves a real gap -- see MOD-01).
+      owner_t_forest_entropy_balanced: {source: owner, owner_learner: forest_entropy_balanced, family: forest, params: *forest, complexity: 2}
       # X-learner (Kunzel et al. 2019): built for the ~12:1 treated/control imbalance a plain T-learner
       # handles badly. See train_x_learner() in model3_uplift.py.
       owner_x_learner: {source: owner, owner_learner: x_learner, family: x_learner, params: {}, complexity: 3}
