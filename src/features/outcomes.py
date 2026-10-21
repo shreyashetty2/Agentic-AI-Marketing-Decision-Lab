@@ -92,7 +92,25 @@ def compute_outcomes(tables: Tables, causal: pd.DataFrame | Path) -> pd.DataFram
             SELECT DISTINCT s.household_key, s.campaign, 1 AS flag
             FROM spine s JOIN mailings m
               ON m.household_key = s.household_key AND m.campaign <> s.campaign
-             AND m.start_day <= s.end_day AND m.end_day >= s.start_day)
+             AND m.start_day <= s.end_day AND m.end_day >= s.start_day),
+        -- Campaign-level promo intensity: of this campaign's own weeks, how many had at least one
+        -- eligible product on display or in the flyer (any store)? Known before mailing -- it depends
+        -- only on the campaign's product list (set by coupon.csv) and the promo calendar, never on any
+        -- household's purchases -- so it's safe as a model input, unlike the household-level outcome.
+        promo_weeks AS (
+            SELECT DISTINCT k.campaign, pr.week_no
+            FROM campaigns k
+            JOIN cprod p ON p.campaign = k.campaign
+            JOIN promoted pr ON pr.product_id = p.product_id
+            WHERE (pr.on_display = 1 OR pr.in_flyer = 1)
+              AND pr.week_no BETWEEN ceil((k.start_day + 2) / 7.0)::INT AND ceil((k.end_day + 2) / 7.0)::INT),
+        camp_promo AS (
+            SELECT k.campaign,
+                   ceil((k.end_day + 2) / 7.0)::INT - ceil((k.start_day + 2) / 7.0)::INT + 1 AS n_weeks,
+                   count(DISTINCT pw.week_no) AS n_promo_weeks
+            FROM campaigns k
+            LEFT JOIN promo_weeks pw ON pw.campaign = k.campaign
+            GROUP BY ALL)
         SELECT s.household_key, s.campaign,
                coalesce(spend.v, 0)::DOUBLE AS campaign_product_spend_during,
                CASE WHEN s.redeemed_flag = 1 THEN coalesce(redeemed_spend.v, 0) END::DOUBLE
@@ -103,11 +121,14 @@ def compute_outcomes(tables: Tables, causal: pd.DataFrame | Path) -> pd.DataFram
                    AS bought_campaign_product_excl_display,
                CASE WHEN s.campaign_type <> 'A' THEN coalesce(model3.excl_both, 0) - coalesce(model3.via_redemption, 0) END::DOUBLE
                    AS bought_campaign_product_without_redemption,
-               coalesce(overlap.flag, 0)::INT AS mailed_overlapping_campaign
+               coalesce(overlap.flag, 0)::INT AS mailed_overlapping_campaign,
+               CASE WHEN s.campaign_type <> 'A' THEN (camp_promo.n_promo_weeks::DOUBLE / camp_promo.n_weeks) END::DOUBLE
+                   AS campaign_promo_share
         FROM spine s
         LEFT JOIN spend USING (household_key, campaign)
         LEFT JOIN redeemed_spend USING (household_key, campaign)
         LEFT JOIN model3 USING (household_key, campaign)
         LEFT JOIN overlap USING (household_key, campaign)
+        LEFT JOIN camp_promo USING (campaign)
         ORDER BY s.household_key, s.campaign
     """).df()
