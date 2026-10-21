@@ -48,6 +48,7 @@ from lead.surprises import never_seen, unusual_moves  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 SPEC_PATH = Path(__file__).with_name("lead_spec.yaml")
 SHARED_STEPS = ("data", "features")
+MODEL3_ONLY_STEPS = ("sure_things",)   # a standalone tool, not part of every model's uplift/classify loop
 REPLAY_STEPS = ("asof",)
 PER_MODEL_STEPS = ("modeling", "evaluation")
 STOPPING_AGENTS = ("data", "features")   # a new question here means the data underneath is not understood
@@ -110,7 +111,9 @@ def plan_steps(spec: dict, models: list[int], day: int | None = None, folder: st
         return Step(name, cfg["agent"], model, [fill(c) for c in cfg["runs"]], [fill(p) for p in cfg["inputs"]],
                     [fill(p) for p in cfg["outputs"]], folders, folder, day)
     names = SHARED_STEPS + (REPLAY_STEPS if day is not None else ())
-    return [make(n, None) for n in names] + [make(n, m) for m in models for n in PER_MODEL_STEPS]
+    extra = [n for n in MODEL3_ONLY_STEPS if n in spec["steps"]]   # optional: specs/fixtures may not define it
+    return ([make(n, None) for n in names] + [make(n, m) for m in models for n in PER_MODEL_STEPS]
+            + [make(n, m) for m in models for n in extra if m == 3])
 
 
 def fingerprint(root: Path, patterns: list[str]) -> str:
@@ -305,8 +308,20 @@ def update_approved(root: Path, spec: dict, step: Step, report: dict, when: str,
             "approved": record, "previous": previous}
 
 
+def read_sure_things(root: Path, step: Step) -> dict:
+    """Model 3 only: a classifier trained on already-mailed households, flagging likely wasted sends --
+    not a competing uplift candidate, so no verdict, no options, just its own held-out numbers."""
+    facts = json.loads((root / step.folders["tables"] / "model3_sure_things.json").read_text())
+    lift = facts["top_fifth_rate"] / facts["base_rate"] if facts["base_rate"] else None
+    return {"produced": [f"flags likely-wasted sends among {facts['n_test']:,} held-out mailed households: "
+                         f"AUC {facts['auc']:.3f}; its most confident fifth is right {facts['top_fifth_rate']:.1%} "
+                         f"of the time, against a {facts['base_rate']:.1%} base rate"
+                         + (f" ({lift:.1f}x)" if lift else "")],
+            "facts": facts, "handled": None, "questions": [], "stopped": None}
+
+
 READERS = {"data": read_data, "features": read_features, "asof": read_asof, "modeling": read_modeling,
-           "evaluation": read_evaluation}
+           "evaluation": read_evaluation, "sure_things": read_sure_things}
 
 
 # ---- the run ---------------------------------------------------------------------------------------------
