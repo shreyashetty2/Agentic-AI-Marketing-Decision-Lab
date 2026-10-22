@@ -121,6 +121,10 @@ The exception is logistic regression on **log-scaled** columns. Coupon counts an
   - Feature-group candidates: coupon only, and coupon plus one group.
   - The investigation's result as candidates: new columns only (`extended_plus_forest`), learner only (`owner_cols_logistic_log`), and both (`extended_plus_logistic_log`).
   - A new learner, `logistic_log` (`learners.py`), which the brain may also propose.
+- **Lead agent** (Pranav's, merged 10/20), so the new options work through it:
+  - `logistic_log` has a plain-language name in the run summary (`src/lead/describe.py`).
+  - The four new everyday coupon columns are watched for unusual moves (`lead_spec.yaml`). On our two years, no campaign-to-campaign move trips the check.
+  - Any of the three options can be made Model 1's model in use with `src/lead/in_use.py`. I tested this on a scratch copy, not the team's real file (decision 2 below).
 - **Not adopted:** private-label share, the main store's coupon culture, campaign size, in-store display/flyer habits, and 14 other coupon, offer-fit and redemption variants. `model1_feature_search.py` still builds them, so the result can be reproduced.
 
 ## Official result (Modeling and Evaluation Agents, open campaigns)
@@ -142,6 +146,7 @@ The exception is logistic regression on **log-scaled** columns. Coupon counts an
 - **The open campaigns have been reused.** Several rounds of ideas have been judged on them. I also chose which 18 columns to keep after seeing results there, so the 39-column numbers lean optimistic. The all-59-columns result, where nothing was picked, is the cautious version: +1.8 AUC and +2.5 capture.
 - **History says be careful.** In the first locked-campaign check, every Model 1 option that looked better on the open campaigns fell back within noise.
 - **13 campaigns, 707 redeemers.** The ranges are wide, and the lower ends sit close to zero for capture.
+- **Shreya's `campaign_promo_share` (merged 10/21) can't help Model 1.** It's the same for every household in a campaign, and blank for Type A, while Model 1 ranks households within a campaign.
 
 ## Decisions for the team
 
@@ -149,7 +154,10 @@ The exception is logistic regression on **log-scaled** columns. Coupon counts an
    - Command: `python src/evaluation/agent.py --model 1 --unlock`
    - It would be the second look at campaigns 21 to 25. The agent flags a second look as less clean, and with 811 rows it can catch a failure but not confirm a 3-point gain.
    - My suggestion: run it once for `extended_plus_forest` and `extended_plus_logistic_log` before Anna decides, and make no more Model 1 changes after it.
+   - **Lead agent replays.** A replay holds nothing back, so one as of day 657 or later grades campaigns 21 and 22, and one as of day 720 grades all five. Pranav's examples use day 660. Any replay of Model 1 on this branch past day 656 would show the new options' results on held-back campaigns. Hold off on those replays until this decision is made.
 2. **Anna:** adopt `extended_plus_logistic_log`, `extended_plus_forest`, or keep the current forest? Switching is the owner's decision.
+   - With Pranav's lead agent, this needs no script edits: `python src/lead/in_use.py set --model 1 --idea extended_plus_logistic_log --by "Yuxin Cai" --reason "..."`, or ask the lead agent (`/lead-agent`).
+   - The forest stays in as an option for comparison, and `in_use.py clear --model 1` switches back.
 3. **Pranav and the team:** OK with 2A building the 18 columns?
    - On 10/16 we agreed the Feature Agent stays mechanical and new feature ideas live in the Modeling Agent. Here the ideas came from the modeling side, and 2A only computes them, because the Modeling Agent can't build columns.
    - The demographics recode settles a loose end. The 2A spec said turning labels into numbers was the Modeling Agent's job, while the Modeling Agent sends text columns back to the Feature Agent.

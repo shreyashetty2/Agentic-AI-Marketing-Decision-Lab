@@ -8,6 +8,8 @@ def test_each_kind_of_model_in_plain_words():
     assert model_words({"family": "median_linear", "features": ["usual_spend"]}, "regress") == (
         "calibrated usual spend (a straight line on usual spend, fit through the middle of the answers) on 1 column")
     assert model_words({"family": "logistic", "features": ["a", "b"]}, "classify").startswith("logistic regression")
+    assert model_words({"family": "logistic_log", "features": ["a"]}, "classify").startswith(
+        "logistic regression on log-scaled columns")
     assert model_words(forest, "uplift").startswith(
         "pair of random forests (300 trees, 6 levels deep), one for mailed and one for unmailed households")
 

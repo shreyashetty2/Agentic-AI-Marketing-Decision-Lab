@@ -71,8 +71,15 @@ is "redeemers caught": of the households that really redeemed, how many are in t
 5. LightGBM, 21 columns
 6. Deeper random forest: 10 levels deep, 11 columns
 7. Shallower random forest: 4 levels deep, 11 columns
+8. Random forest on coupon use alone (1 column) -- the bar: coupon use ranks as well as the current model
+9-14. Random forest on coupon use plus one group: shopping activity, discount share, redemption history,
+   offer fit, campaign details, or demographics
+15. Random forest, 39 columns (the 21 plus 18 built for Model 1: coupon habit in more detail, coupon use on
+   the campaign's products, redemption history in more detail, demographics as numbers)
+16. Logistic regression on log-scaled columns (shrinks very large counts first), same 11 columns
+17. Logistic regression on log-scaled columns, 39 columns
 
-Running now -- about 2 minutes.
+Running now -- about 4 minutes.
 ```
 
 Model 2:

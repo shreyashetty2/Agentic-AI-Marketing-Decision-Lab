@@ -167,7 +167,7 @@ You think it through yourself, from what was measured, and relay every step; the
    and append up to 5 ideas to `data/processed/modeling_agent/modelN/proposals.yaml`, each with `title`, `reason`,
    `expected` and one change (ideas already in that file from earlier were suggested, not necessarily approved or
    tested: check their `approved` field and the brief before saying either): `add_columns` / `drop_columns` (columns from the brief's "may add" list), `family`
-   (forest, lightgbm, logistic; linear for Model 2), `params` (within the brief's ranges), or
+   (forest, lightgbm, logistic, logistic_log; linear for Model 2), `params` (within the brief's ranges), or
    `new_column: {name, definition}` for a column that does not exist yet. Leave out `id`, `from`, `approved`.
    Aim the ideas at the model's main problem when it was sent back (e.g. low totals).
 3. Run `.venv/bin/python src/modeling/brain.py --model N --check > /dev/null`; it numbers the ideas and checks
