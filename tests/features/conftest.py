@@ -8,7 +8,7 @@ Households:
     1  long history (first purchase day 10), mailed c1 + c2, redeems c1 on day 105, has demographics
     2  short history (first purchase day 80), mailed c1, never redeems
     3  first purchase day 150 (no history before c1/c2), never mailed
-Products: 101 PRODUCE (c1 + c3 coupons), 102 MEAT (c2 pool), 103 GROCERY (no coupon)
+Products: 101 PRODUCE/APPLES (c1 + c3 coupons), 102 MEAT/BEEF (c2 pool), 103 GROCERY/SOUP (no coupon)
 """
 import sys
 from pathlib import Path
@@ -77,7 +77,8 @@ def tables():
         columns=["coupon_upc", "product_id", "campaign"])
     redemptions = pd.DataFrame([(1, 105, "U1", 1)], columns=["household_key", "day", "coupon_upc", "campaign"])
     products = pd.DataFrame(
-        [(101, "PRODUCE"), (102, "MEAT"), (103, "GROCERY")], columns=["product_id", "department"])
+        [(101, "PRODUCE", "APPLES"), (102, "MEAT", "BEEF"), (103, "GROCERY", "SOUP")],
+        columns=["product_id", "department", "commodity_desc"])
     demographics = pd.DataFrame([{
         "household_key": 1, "classification_1": "Age Group4", "classification_2": "X",
         "classification_3": "Level5", "classification_4": "2", "classification_5": "Group5",

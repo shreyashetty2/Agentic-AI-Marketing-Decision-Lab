@@ -91,6 +91,20 @@ profile:
   coupon_lines_per_week_26w:
     desc: "Average weekly receipt lines that used any coupon (COUPON_DISC < 0), 26-week window."
     blank_when: [no_history]
+  # Coupon habit in more detail (added for Model 1 after the 10/16 feature-group work; see
+  # reports/model1_feature_investigation.md). Same coupon definition as above.
+  coupon_lines_per_week_8w:
+    desc: "Average weekly receipt lines that used any coupon, 8-week window (recent coupon use)."
+    blank_when: [no_history]
+  coupon_lines_per_week_all:
+    desc: "Average weekly receipt lines that used any coupon, over all history before cutoff_day."
+    blank_when: [no_history]
+  coupon_trip_share_26w:
+    desc: "Share of 26-week trips (distinct baskets) with at least one coupon line."
+    blank_when: [no_history, no_spend_26w]
+  coupon_commodities_26w:
+    desc: "Distinct commodities (product.COMMODITY_DESC) bought with a coupon in the 26-week window."
+    blank_when: [no_history]
 
   # Coupon history (all history before cutoff_day)
   past_redemptions:
@@ -102,6 +116,9 @@ profile:
   past_redemption_rate:
     desc: "past_campaigns_redeemed / past_campaigns_received."
     blank_when: [never_received]
+  redeemed_last_campaign:
+    desc: "1 if the household redeemed the campaign it received that ended most recently before cutoff_day (any of them, if several ended that day), else 0."
+    blank_when: [never_received]
 
   # Interest in this campaign's products (each campaign's distinct product list from coupon)
   campaign_product_spend_per_week_26w:
@@ -110,12 +127,20 @@ profile:
   campaign_product_share_26w:
     desc: "Share of 26-week spend on this campaign's products."
     blank_when: [no_history, no_spend_26w]
+  campaign_product_coupon_lines_per_week_26w:
+    desc: "Average weekly coupon lines on this campaign's products, 26-week window."
+    blank_when: [no_history]
+  campaign_commodity_coupon_lines_per_week_26w:
+    desc: "Average weekly coupon lines on any product in the commodities this campaign's products belong to, 26-week window."
+    blank_when: [no_history]
+  past_redemptions_in_campaign_commodities:
+    desc: "Distinct coupons redeemed before cutoff_day whose products share a commodity with this campaign's products."
 
   # Other campaigns
   other_campaigns_live_at_cutoff:
     desc: "Other campaigns mailed to the household that started before cutoff_day and are still running on it."
 
-  # Household (raw labels; turning them into numbers is the Modeling Agent's job)
+  # Household: the raw labels, kept as they are
   classification_1: {desc: "Demographic label (anonymised; ordered age groups).", blank_when: [no_demographics]}
   classification_2: {desc: "Demographic label (anonymised; X/Y/Z).", blank_when: [no_demographics]}
   classification_3: {desc: "Demographic label (anonymised; ordered levels).", blank_when: [no_demographics]}
@@ -123,6 +148,19 @@ profile:
   classification_5: {desc: "Demographic label (anonymised; ordered groups).", blank_when: [no_demographics]}
   homeowner_desc: {desc: "Homeowner status label.", blank_when: [no_demographics]}
   kid_category_desc: {desc: "Number-of-kids label.", blank_when: [no_demographics]}
+  # The same labels as numbers (the Modeling Agent only takes numbers). A mechanical recode, no choice involved:
+  # ordered labels keep their order starting at 1; 0 = no demographic record (has_demographics says which),
+  # so these columns are never blank. The team decided 10/16 to keep demographics in the feature set.
+  classification_1_code: {desc: "classification_1 as a number: Age Group1-6 -> 1-6; 0 = no record."}
+  classification_3_code: {desc: "classification_3 as a number: Level1-12 -> 1-12; 0 = no record."}
+  classification_4_code: {desc: "classification_4 as a number: 1-4 -> 1-4, 5+ -> 5; 0 = no record."}
+  classification_5_code: {desc: "classification_5 as a number: Group1-6 -> 1-6; 0 = no record."}
+  kid_count_code: {desc: "kid_category_desc as a number: 1, 2, 3+ -> 1, 2, 3; None/Unknown or no record -> 0."}
+  classification_2_x: {desc: "1 if classification_2 is X, else 0 (including no record)."}
+  classification_2_y: {desc: "1 if classification_2 is Y, else 0 (including no record)."}
+  classification_2_z: {desc: "1 if classification_2 is Z, else 0 (including no record)."}
+  homeowner_flag: {desc: "1 if homeowner_desc is Homeowner or Probable Owner, else 0 (including no record)."}
+  renter_flag: {desc: "1 if homeowner_desc is Renter or Probable Renter, else 0 (including no record)."}
 
 context:   # known before mailing, computed by 2A (not a spine passthrough); safe as a model input
   campaign_promo_share:

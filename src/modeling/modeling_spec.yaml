@@ -51,6 +51,7 @@ brain:
                min_child_samples: [5, 500], reg_lambda: [0.0, 100.0], subsample: [0.3, 1.0],
                colsample_bytree: [0.3, 1.0]}
     logistic: {C: [0.0001, 100.0]}
+    logistic_log: {C: [0.0001, 100.0]}
     linear:   {}
     median_linear: {}
 
@@ -67,7 +68,7 @@ models:
     name: "Campaign Response Probability"
     owner: "Yuxin (model1_baseline.py), evaluated by John (model1_evaluation.py)"
     # Every committed model1_*.py must be listed; a new one is flagged (it may be a newer model).
-    scripts: {current: model1_baseline.py, others: [model1_evaluation.py]}
+    scripts: {current: model1_baseline.py, others: [model1_evaluation.py, model1_feature_search.py]}
     table: model1_table.parquet
     task: classify
     label: redeemed_flag
@@ -82,6 +83,33 @@ models:
                  spend_per_week_8w, trips_per_week_8w, days_since_last_trip, avg_basket_value_26w,
                  n_departments_26w, past_redemptions, past_campaigns_received, past_campaigns_redeemed,
                  other_campaigns_live_at_cutoff, has_demographics]
+      # Feature-group iterations (mentor follow-up 10/16). Coupon use alone ranks almost as well as the owner's
+      # model, so it is the bar; each set below adds ONE group of already-built 2A columns to it.
+      coupon_only: [coupon_lines_per_week_26w]
+      coupon_plus_shopping: [coupon_lines_per_week_26w, spend_per_week_26w, trips_per_week_26w, history_weeks_before_cutoff,
+                             spend_per_week_8w, trips_per_week_8w, days_since_last_trip, avg_basket_value_26w, n_departments_26w]
+      coupon_plus_deal: [coupon_lines_per_week_26w, share_spend_on_discount_26w]
+      coupon_plus_history: [coupon_lines_per_week_26w, past_redemption_rate, past_redemptions, past_campaigns_received,
+                            past_campaigns_redeemed]
+      coupon_plus_offer_fit: [coupon_lines_per_week_26w, campaign_product_spend_per_week_26w, campaign_product_share_26w]
+      coupon_plus_campaign: [coupon_lines_per_week_26w, duration_days, is_type_a, is_type_b, other_campaigns_live_at_cutoff]
+      coupon_plus_demographics: [coupon_lines_per_week_26w, has_demographics, classification_1_code, classification_3_code,
+                                 classification_4_code, classification_5_code, kid_count_code, classification_2_x,
+                                 classification_2_y, classification_2_z, homeowner_flag, renter_flag]
+      # extended + the 18 columns 2A added after the feature investigation (reports/model1_feature_investigation.md):
+      # coupon habit in more detail, coupon use on this campaign's products/commodities, redemption history in more
+      # detail, and demographics as numbers.
+      extended_plus: [spend_per_week_26w, trips_per_week_26w, coupon_lines_per_week_26w, share_spend_on_discount_26w,
+                      past_redemption_rate, campaign_product_spend_per_week_26w, campaign_product_share_26w,
+                      history_weeks_before_cutoff, duration_days, is_type_a, is_type_b,
+                      spend_per_week_8w, trips_per_week_8w, days_since_last_trip, avg_basket_value_26w,
+                      n_departments_26w, past_redemptions, past_campaigns_received, past_campaigns_redeemed,
+                      other_campaigns_live_at_cutoff, has_demographics,
+                      coupon_lines_per_week_8w, coupon_lines_per_week_all, coupon_trip_share_26w, coupon_commodities_26w,
+                      campaign_product_coupon_lines_per_week_26w, campaign_commodity_coupon_lines_per_week_26w,
+                      redeemed_last_campaign, past_redemptions_in_campaign_commodities,
+                      classification_1_code, classification_3_code, classification_4_code, classification_5_code,
+                      kid_count_code, classification_2_x, classification_2_y, classification_2_z, homeowner_flag, renter_flag]
     candidates:
       owner_forest:      {source: owner, owner_learner: forest, family: forest, params: *forest, complexity: 2}
       owner_logistic:    {source: owner, owner_learner: logistic, family: logistic, params: {max_iter: 1000}, complexity: 1}
@@ -90,6 +118,19 @@ models:
       extended_lightgbm: {source: agent, family: lightgbm, features: extended, params: *lgbm, complexity: 3}
       deeper_forest:     {source: agent, family: forest, features: owner, params: *forest_deeper, complexity: 2}
       shallower_forest:  {source: agent, family: forest, features: owner, params: *forest_shallower, complexity: 2}
+      # Same forest as the owner's, so only the columns change: each gain is attributable to one group.
+      coupon_only_forest:          {source: agent, family: forest, features: coupon_only, params: *forest, complexity: 2}
+      coupon_shopping_forest:      {source: agent, family: forest, features: coupon_plus_shopping, params: *forest, complexity: 2}
+      coupon_deal_forest:          {source: agent, family: forest, features: coupon_plus_deal, params: *forest, complexity: 2}
+      coupon_history_forest:       {source: agent, family: forest, features: coupon_plus_history, params: *forest, complexity: 2}
+      coupon_offer_fit_forest:     {source: agent, family: forest, features: coupon_plus_offer_fit, params: *forest, complexity: 2}
+      coupon_campaign_forest:      {source: agent, family: forest, features: coupon_plus_campaign, params: *forest, complexity: 2}
+      coupon_demographics_forest:  {source: agent, family: forest, features: coupon_plus_demographics, params: *forest, complexity: 2}
+      # The feature investigation's result as candidates: new columns only (forest), learner only (logistic on
+      # log-scaled columns, owner's columns), and both. C=0.05 was set before testing, not tuned.
+      extended_plus_forest:        {source: agent, family: forest, features: extended_plus, params: *forest, complexity: 2}
+      owner_cols_logistic_log:     {source: agent, family: logistic_log, features: owner, params: {C: 0.05, max_iter: 3000}, complexity: 1}
+      extended_plus_logistic_log:  {source: agent, family: logistic_log, features: extended_plus, params: {C: 0.05, max_iter: 3000}, complexity: 1}
     default: owner_forest
     forward_chain: {min_train_rows: 500, min_train_positives: 50}
     locked_test_campaigns: 5          # campaigns 21-25, the same five Pranav's Model 1 experiments locked

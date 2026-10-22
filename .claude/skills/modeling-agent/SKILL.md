@@ -71,8 +71,15 @@ is "redeemers caught": of the households that really redeemed, how many are in t
 5. LightGBM, 21 columns
 6. Deeper random forest: 10 levels deep, 11 columns
 7. Shallower random forest: 4 levels deep, 11 columns
+8. Random forest on coupon use alone (1 column) -- the bar: coupon use ranks as well as the current model
+9-14. Random forest on coupon use plus one group: shopping activity, discount share, redemption history,
+   offer fit, campaign details, or demographics
+15. Random forest, 39 columns (the 21 plus 18 built for Model 1: coupon habit in more detail, coupon use on
+   the campaign's products, redemption history in more detail, demographics as numbers)
+16. Logistic regression on log-scaled columns (shrinks very large counts first), same 11 columns
+17. Logistic regression on log-scaled columns, 39 columns
 
-Running now -- about 2 minutes.
+Running now -- about 4 minutes.
 ```
 
 Model 2:
@@ -128,6 +135,8 @@ These lists mirror `candidates` in `src/modeling/modeling_spec.yaml`; if they di
 - random forest: many decision trees (each a chain of yes/no questions about the household) that vote;
   settings: number of trees, how many levels deep, smallest group of households a tree may split down to
 - logistic regression: one weighted formula of the columns, turned into a chance
+- logistic regression on log-scaled columns (`logistic_log`): the same, after shrinking very large counts and dollars
+  (log scale) so a few heavy coupon users do not dominate the formula
 - linear regression: one weighted formula of the columns, giving dollars
 - calibrated usual spend: e.g. "spend = 0.8 x usual spend + $6"
 - LightGBM: trees built one after another, each fixing the mistakes of the ones before
@@ -188,7 +197,7 @@ model; the owner should tell us whether it should become the current one."
 2. Think it through. Write your reading of the results to `data/processed/modeling_agent/modelN/brain_diagnosis.md`,
    and append up to 5 ideas to `data/processed/modeling_agent/modelN/proposals.yaml`, each with `title`,
    `reason`, `expected` and one change: `add_columns` / `drop_columns` (columns from the brief's "may add"
-   list), `family` (forest, lightgbm, logistic; linear for Model 2), `params` (within the brief's ranges),
+   list), `family` (forest, lightgbm, logistic, logistic_log; linear for Model 2), `params` (within the brief's ranges),
    or `new_column: {name, definition}` for a column that does not exist yet. Leave out `id`, `from`, `approved`.
 3. Run `.venv/bin/python src/modeling/brain.py --model N --check`; it numbers the ideas and checks them
    against the safety rules. Leave out any it rejects (one line saying why).

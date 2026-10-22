@@ -15,10 +15,20 @@ from lightgbm import LGBMClassifier, LGBMRegressor
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression, QuantileRegressor
 from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import FunctionTransformer, StandardScaler
+
+
+def signed_log1p(X):
+    """log(1 + |x|), keeping the sign. Counts and dollars are very skewed (a few heavy coupon users sit far out),
+    which a straight-line model handles badly; on Model 1 this alone lifted the owner's logistic regression
+    from 53.9% to 59.3% of redeemers caught (reports/model1_feature_investigation.md). 0 stays 0."""
+    return np.sign(X) * np.log1p(np.abs(X))
+
 
 FAMILIES = {
     ("logistic", "classify"): lambda p: make_pipeline(StandardScaler(), LogisticRegression(**p)),
+    ("logistic_log", "classify"): lambda p: make_pipeline(FunctionTransformer(signed_log1p), StandardScaler(),
+                                                          LogisticRegression(**p)),
     ("linear", "regress"): lambda p: make_pipeline(StandardScaler(), LinearRegression(**p)),
     # a straight line fit through the middle (median) of the answers, as Model 2's current model is
     ("median_linear", "regress"): lambda p: make_pipeline(StandardScaler(), QuantileRegressor(**p)),

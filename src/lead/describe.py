@@ -32,6 +32,8 @@ def model_words(candidate: dict, task: str) -> str:
     kind = {"forest": f"random forest ({p.get('n_estimators', 100)} trees, {p.get('max_depth', 'any number of')} levels deep)",
             "lightgbm": f"LightGBM ({p.get('n_estimators', 100)} trees built one after another, each fixing the last)",
             "logistic": "logistic regression (one weighted formula, turned into a chance)",
+            "logistic_log": ("logistic regression on log-scaled columns (one weighted formula, after shrinking very "
+                             "large counts and dollars so a few heavy coupon users do not dominate it)"),
             "linear": "linear regression (one weighted formula, giving dollars)",
             "median_linear": "calibrated usual spend (a straight line on usual spend, fit through the middle of the answers)",
             }.get(family, family)

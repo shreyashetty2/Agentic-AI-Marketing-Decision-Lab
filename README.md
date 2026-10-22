@@ -307,6 +307,7 @@ python src/modeling/model3_redemption_analysis.py  # Model 3 redemption-segmenta
 python src/modeling/model3_product_lookup.py                 # Model 3: every eligible product, all campaigns, ranked + saved to CSV
 python src/modeling/model3_product_lookup.py --campaign 29   # Model 3: product-level drill-down for one campaign (name, uplift, redemption use)
 python src/modeling/model1_evaluation.py           # Model 1: validate the baseline, feature importance, model x feature comparison (~4 min)
+python src/modeling/model1_feature_search.py       # Model 1: which features add something beyond coupon use (~45 min; --quick ~15)
 python src/modeling/agent.py --model all --mode both  # Step 3, Modeling Agent: reproduce owners' numbers, forward-chain, choose (~2 min)
 python src/evaluation/agent.py --model all          # Step 4, Evaluation Agent: judge each model, verdict + questions for a person
 python src/modeling/brain.py --model 1              # Brain: propose what to try next (needs ANTHROPIC_API_KEY; --manual without)
@@ -320,7 +321,7 @@ python tests/features/acceptance_2b.py   # real-data acceptance checks
 python tests/modeling/acceptance_agents.py   # Modeling + Evaluation Agent real-data checks (~4 min)
 ```
 
-Step 2A writes `data/processed/features_household_campaign.parquet` (75,000 rows x 47 columns) and `feature_2a_report.md`. What every column means, and which ones a model may use, is in `src/features/feature_2a_spec.yaml`.
+Step 2A writes `data/processed/features_household_campaign.parquet` (75,000 rows x 67 columns) and `feature_2a_report.md`. What every column means, and which ones a model may use, is in `src/features/feature_2a_spec.yaml`.
 
 Step 2B writes `data/processed/model{1,2,3}_table.parquet` and `feature_2b_report.md`. Which rows and which answer column each model gets is in `src/features/feature_2b_spec.yaml` (why, in `docs/agent_design/feature_agent_2b_design.md`): Model 1 is 7,208 mailed rows (889 redeemed); Model 2 is 254 redeemed TypeB/C rows; Model 3 is 43,396 TypeB/C rows (3,229 treated, 40,167 clean control).
 
