@@ -128,6 +128,8 @@ These lists mirror `candidates` in `src/modeling/modeling_spec.yaml`; if they di
 - random forest: many decision trees (each a chain of yes/no questions about the household) that vote;
   settings: number of trees, how many levels deep, smallest group of households a tree may split down to
 - logistic regression: one weighted formula of the columns, turned into a chance
+- logistic regression on log-scaled columns (`logistic_log`): the same, after shrinking very large counts and dollars
+  (log scale) so a few heavy coupon users do not dominate the formula
 - linear regression: one weighted formula of the columns, giving dollars
 - calibrated usual spend: e.g. "spend = 0.8 x usual spend + $6"
 - LightGBM: trees built one after another, each fixing the mistakes of the ones before
@@ -188,7 +190,7 @@ model; the owner should tell us whether it should become the current one."
 2. Think it through. Write your reading of the results to `data/processed/modeling_agent/modelN/brain_diagnosis.md`,
    and append up to 5 ideas to `data/processed/modeling_agent/modelN/proposals.yaml`, each with `title`,
    `reason`, `expected` and one change: `add_columns` / `drop_columns` (columns from the brief's "may add"
-   list), `family` (forest, lightgbm, logistic; linear for Model 2), `params` (within the brief's ranges),
+   list), `family` (forest, lightgbm, logistic, logistic_log; linear for Model 2), `params` (within the brief's ranges),
    or `new_column: {name, definition}` for a column that does not exist yet. Leave out `id`, `from`, `approved`.
 3. Run `.venv/bin/python src/modeling/brain.py --model N --check`; it numbers the ideas and checks them
    against the safety rules. Leave out any it rejects (one line saying why).

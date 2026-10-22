@@ -57,7 +57,7 @@ TOOL = {
                     "expected": {"type": "string", "description": "What result would show it worked, or not."},
                     "add_columns": {"type": "array", "items": {"type": "string"}},
                     "drop_columns": {"type": "array", "items": {"type": "string"}},
-                    "family": {"type": "string", "enum": ["forest", "lightgbm", "logistic", "linear", "median_linear"]},
+                    "family": {"type": "string", "enum": ["forest", "lightgbm", "logistic", "logistic_log", "linear", "median_linear"]},
                     "params": {"type": "object"},
                     "new_column": {"type": "object", "required": ["name", "definition"], "properties": {
                         "name": {"type": "string"},
@@ -161,7 +161,7 @@ def build_brief(c: dict) -> str:
         "", "## Columns that exist but cannot be added as they are (a new_column idea could fix some)",
         *[f"- `{col}`: {why}" for col, why in unusable.items()],
         "", "## What you may change",
-        f"- Learners: forest, lightgbm, logistic{', linear, median_linear' if mcfg['task'] == 'regress' else ''}"
+        f"- Learners: forest, lightgbm, logistic{', linear, median_linear' if mcfg['task'] == 'regress' else ', logistic_log (logistic on log-scaled columns)'}"
         + (" (uplift: each is used as a pair, one for mailed and one for unmailed households)" if mcfg["task"] == "uplift" else "")
         + (" (linear and median_linear are for dollar answers only)" if mcfg["task"] != "regress" else ""),
         "- Settings (others are fixed; allowed ranges): " + "; ".join(

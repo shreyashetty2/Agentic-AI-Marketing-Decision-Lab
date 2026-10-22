@@ -99,3 +99,53 @@ def test_scrambling_the_future_changes_nothing(tables):
         sub = rows[rows.cutoff_day == cutoff]
         after = compute_profiles(t, sub)
         pd.testing.assert_frame_equal(before.loc[sub.index], after, check_exact=True)
+
+
+def test_coupon_habit_columns(tables):
+    t = tables.copy()
+    apples = (t.transactions.household_key == 1) & (t.transactions.day == 60) & (t.transactions.product_id == 101)
+    t.transactions.loc[apples, "coupon_disc"] = -0.3          # now two coupon lines on day 60 (SOUP and APPLES)
+    r = _row(t, 1, 1)                                          # cutoff 93, 83 days of history
+    assert r.coupon_lines_per_week_8w == pytest.approx(2 / 8)
+    assert r.coupon_lines_per_week_all == pytest.approx(2 / (83 / 7))
+    assert r.coupon_trip_share_26w == pytest.approx(1 / 3)    # basket 2 of baskets 1, 2, 3
+    assert r.coupon_commodities_26w == 2
+    # c1's products are {101}: one coupon line on it, and APPLES is its only commodity
+    assert r.campaign_product_coupon_lines_per_week_26w == pytest.approx(1 / (83 / 7))
+    assert r.campaign_commodity_coupon_lines_per_week_26w == pytest.approx(1 / (83 / 7))
+
+
+def test_coupon_on_other_products_is_not_campaign_coupon_use(tables):
+    r = _row(tables, 1, 1)                                     # the only coupon line is SOUP; c1 is APPLES
+    assert r.coupon_lines_per_week_26w > 0
+    assert r.campaign_product_coupon_lines_per_week_26w == 0
+    assert r.campaign_commodity_coupon_lines_per_week_26w == 0
+
+
+def test_no_history_leaves_new_coupon_columns_blank(tables):
+    r = _row(tables, 3, 1)
+    for col in ["coupon_lines_per_week_8w", "coupon_lines_per_week_all", "coupon_trip_share_26w",
+                "coupon_commodities_26w", "campaign_product_coupon_lines_per_week_26w",
+                "campaign_commodity_coupon_lines_per_week_26w"]:
+        assert np.isnan(r[col]), col
+
+
+def test_redeemed_last_campaign_and_redemptions_in_campaign_commodities(tables):
+    assert np.isnan(_row(tables, 1, 1).redeemed_last_campaign)            # nothing ended before cutoff 93
+    assert features(tables, 1, 3, cutoff_day=140).redeemed_last_campaign == 1   # c1 ended 130, redeemed
+    r = _row(tables, 1, 3)                                                # cutoff 193: c2 ended last, not redeemed
+    assert r.redeemed_last_campaign == 0
+    assert r.past_redemptions_in_campaign_commodities == 1               # coupon U1 (APPLES) and c3 is APPLES
+    assert _row(tables, 1, 2).past_redemptions_in_campaign_commodities == 0   # c2 is BEEF
+
+
+def test_demographic_codes(tables):
+    r = _row(tables, 1, 1)
+    assert (r.classification_1_code, r.classification_3_code, r.classification_4_code, r.classification_5_code) == (4, 5, 2, 5)
+    assert (r.classification_2_x, r.classification_2_y, r.classification_2_z) == (1, 0, 0)
+    assert (r.homeowner_flag, r.renter_flag, r.kid_count_code) == (1, 0, 0)
+    none = _row(tables, 2, 1)                                             # no demographic record -> all 0, never blank
+    for col in ["classification_1_code", "classification_3_code", "classification_4_code", "classification_5_code",
+                "kid_count_code", "classification_2_x", "classification_2_y", "classification_2_z",
+                "homeowner_flag", "renter_flag"]:
+        assert none[col] == 0, col

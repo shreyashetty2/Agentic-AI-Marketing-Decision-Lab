@@ -48,7 +48,19 @@ Three details settled by testing:
   - The column most related to who gets mailed is spend (0.84): the retailer targets big spenders. That is Model 3's central challenge, not this column's.
 - **Conflicting display/flyer rows:** only 9 of 40,291 campaign-product purchases hit one, and no Model 3 outcome changes under any tie-break rule. We use "promoted if any row says so".
 
-Demographics stay as raw labels. Turning them into numbers depends on the model type, so the Modeling Agent does it.
+Demographics stay as raw labels, and since 10/19 2A also gives them as numbers (below).
+
+### Columns added 10/19 for Model 1
+
+Background: ranking by coupon use alone catches as many redeemers as Model 1's forest, so the team asked (10/16) which features add something beyond coupon use, demographics included. The investigation (`src/modeling/model1_feature_search.py`, write-up in `reports/model1_feature_investigation.md`) tested 38 candidate columns on the Modeling Agent's open test campaigns only. 18 were added here, because the Modeling Agent can only use columns 2A builds:
+
+- **Coupon habit in more detail:** coupon lines per week over 8 weeks and over all history, share of trips with a coupon, number of commodities bought with one.
+- **Coupon use on this campaign's products and their commodities** (per week, 26 weeks), and **past redemptions of coupons in this campaign's commodities**.
+- **Redeemed the most recently ended campaign** (blank when none ended: `never_received`).
+- **Demographics as numbers:** ordered labels keep their order from 1, unordered ones (classification_2, homeowner/renter) become yes/no columns, and 0 means no record, so they are never blank. The raw labels stay.
+  - Why here and not in the Modeling Agent: the Modeling Agent only accepts numeric columns whose blanks mean "none", and points text columns back to the Feature Agent. The recode is mechanical (no choice of which labels matter), so it fits 2A's job.
+
+Not added, because they added nothing once coupon use was known: private-label share, the main store's coupon culture, campaign size, in-store display/flyer habits, and several coupon and offer-fit variants. Everything existing is unchanged (the 48 earlier columns are byte-identical), and the leak test passes for every column.
 
 ## Outcome columns
 

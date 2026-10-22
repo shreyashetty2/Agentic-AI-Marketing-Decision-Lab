@@ -45,6 +45,6 @@ def load_tables(processed: Path) -> Tables:
         transactions=_read(processed / "transaction_data.parquet"),
         coupons=_read(processed / "coupon.parquet"),
         redemptions=_read(processed / "coupon_redempt.parquet"),
-        products=_read(processed / "product.parquet", ["product_id", "department"]),
+        products=_read(processed / "product.parquet", ["product_id", "department", "commodity_desc"]),
         demographics=_read(processed / "hh_demographic.parquet"),
     )
