@@ -7,6 +7,7 @@ test it the same way as every other candidate. Each model's CURRENT script (mode
 
   Model 1 (Yuxin, John): model1_baseline.load_table + train_models  ("Random forest", "Logistic regression")
   Model 2 (Yuxin):       model2_value.load_table + CalibratedUsualSpend (current: usual spend, calibrated);
+                         TotalsCalibratedUsualSpend and TweedieUsualSpend (usual spend only) as candidates;
                          model2_baseline.train_models ("Random forest", "Linear regression") for comparison
   Model 3 (Shreya):      model3_uplift.load_table + train_t_learner (two random forests, uplift = difference)
 """
@@ -34,7 +35,7 @@ def owner_features(model_id: int) -> list[str]:
 def owner_learner_features(model_id: int, owner_learner: str) -> list[str]:
     """The columns one owner model actually uses: the calibrated Model 2 uses usual spend only; the
     confound-aware X-learner adds campaign_promo_share to the owner's usual list."""
-    if owner_learner == "calibrated":
+    if owner_learner in ("calibrated", "calibrated_totals", "tweedie"):
         return [model2_value.USUAL]
     if owner_learner == "x_learner_confound_aware":
         return list(model3_uplift.CONFOUND_AWARE_FEATURES)
@@ -67,5 +68,9 @@ def fit_owner(model_id: int, owner_learner: str, train: pd.DataFrame, candidate_
         return Fitted(candidate_id, "uplift", features, treated_model=model_t, control_model=model_c)
     if owner_learner == "calibrated":
         return Fitted(candidate_id, "regress", features, estimator=model2_value.CalibratedUsualSpend().fit(train))
+    if owner_learner == "calibrated_totals":
+        return Fitted(candidate_id, "regress", features, estimator=model2_value.TotalsCalibratedUsualSpend().fit(train))
+    if owner_learner == "tweedie":
+        return Fitted(candidate_id, "regress", features, estimator=model2_value.TweedieUsualSpend().fit(train))
     module, name = owner["learners"][owner_learner]
     return Fitted(candidate_id, owner["kind"], features, estimator=module.train_models(train)[name])

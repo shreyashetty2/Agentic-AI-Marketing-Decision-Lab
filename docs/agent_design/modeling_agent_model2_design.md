@@ -129,6 +129,36 @@ All numbers are walk-forward mean absolute error (usual spend = $10.40), from
 - **The sensitivity label** (`redeemed_coupon_product_spend_during`, spend on only the products
   actually redeemed) has not been modeled yet.
 
+## Update (Oct 23): totals, and the model in use
+
+**What the original choice missed.** The median line was chosen because the metric was mean absolute
+error, which a median fit targets directly. But the Decision Lab adds predictions up -- expected revenue
+across a target list, weighed against discount costs -- and on right-skewed spend a median sits below
+the mean, so its totals come out low. The Evaluation Agent's calibration check caught it: predicted total
+/ actual total = 0.80, outside the +/-15% allowed (EVA-06). On 2026-10-20 the model in use was switched to
+`usual_only_linear`, a least-squares line on the same single column (totals 0.95, error $8.71 vs. $8.32).
+The finding that a line on usual spend beats usual spend itself still holds; the line should be fit to
+the mean, not the median.
+
+**Candidates tested against the model in use** (`reports/model2_candidate_comparison.md`), with rules set
+before looking at results: totals within 15%, beat usual spend, and beat the model in use by at least $0.50.
+
+- `owner_calibrated_totals` (`TotalsCalibratedUsualSpend`): the median line rescaled so its training
+  predictions add up to actual spend. Totals 0.92, error $8.42: the closest, but only $0.29 better.
+- `owner_tweedie` (`TweedieUsualSpend`): Tweedie regression (power 1.5, log link) on log(1 + usual
+  spend), a standard mean model for skewed, non-negative amounts. Totals 0.96, error $8.83.
+- `usual_plus_coupon_linear`, `usual_plus_campaign_linear`: usual spend plus one feature group, as Model 1
+  does. Coupon habit adds nothing; campaign information lowers error but fails the totals check (0.84).
+
+None passes all three rules, so `usual_only_linear` stays in use and the locked campaigns were not read.
+
+A second round tried the 2A columns built for Model 1's feature investigation, one group at a time on top of
+usual spend (least-squares lines). None passes rule 3: coupon use on the campaign's own products leans
+positive by only $0.07; redemption history (-$0.78), demographics (-$1.38) and the four groups that helped
+Model 1 together (-$2.32, 21 columns) are reliably worse. Columns that help Model 1 on 7,208 rows overfit
+Model 2's 254.
+On the agent's 113 open test rows, differences under about $1 can't be told apart.
+
 ## How to run it
 
 ```bash
