@@ -95,10 +95,12 @@ def build(tables: Tables, causal, spec: dict) -> tuple[pd.DataFrame, pd.DataFram
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--processed", type=Path, default=Path("data/processed"))
+    parser.add_argument("--exclude-non-merchandise", action="store_true",
+                        help="leave gas-kiosk, miscellaneous and coupon-item lines out of the spend features (default: use all lines)")
     parser.add_argument("--causal", type=Path, default=Path("data/raw/causal_data.csv"))
     args = parser.parse_args()
     spec = load_spec()
-    table, health, decisions, passed = build(load_tables(args.processed), args.causal, spec)
+    table, health, decisions, passed = build(load_tables(args.processed, args.exclude_non_merchandise), args.causal, spec)
     out = args.processed / spec["output"]["table"]
     table.to_parquet(out, index=False)
     health.to_csv(args.processed / "feature_2a_health.csv", float_format="%.4f")
