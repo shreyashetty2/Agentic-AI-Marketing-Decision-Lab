@@ -214,7 +214,27 @@ def build_transaction_flags(tx, outlier_path):
     flags["retail_disc_corrected"] = np.where(disc_typo, -np.abs(rd), np.nan)
     flags["quantity_corrected"] = np.where(qty_sign_typo, np.abs(qty), np.nan)
 
+    # Default for a missing quantity (quantity 0, normal money): the product's median quantity on its normal lines
+    # (quantity > 0, sales > 0), or 1 if the product has fewer than MIN_REFERENCE_LINES such lines.
+    # Only the probable-typo rows get it; the escalated rows (Q5-2) and zero lines do not. Original never overwritten.
+    imputed = np.full(len(tx), np.nan)
+    imputed_src = np.full(len(tx), None, dtype=object)
+    if qty_missing_ok.any() and "product_id" in tx.columns:
+        pid = tx["product_id"].to_numpy()
+        ref = (qty > 0) & (sales > 0)
+        g = pd.DataFrame({"p": pid[ref], "q": qty[ref]}).groupby("p")["q"]
+        med_q, cnt_q = g.median(), g.size()
+        mq = pd.Series(pid).map(med_q).to_numpy(dtype="float64")
+        enough = pd.Series(pid).map(cnt_q).fillna(0).to_numpy() >= MIN_REFERENCE_LINES
+        use_med = qty_missing_ok & enough & np.isfinite(mq)
+        imputed = np.where(use_med, mq, np.where(qty_missing_ok, 1.0, np.nan))
+        imputed_src = np.where(use_med, "product_median", np.where(qty_missing_ok, "default_1", None))
+    flags["quantity_imputed"] = imputed
+    flags["quantity_imputed_source"] = imputed_src
+
     stats = {
+        "qty_imputed_median": int((imputed_src == "product_median").sum()),
+        "qty_imputed_default": int((imputed_src == "default_1").sum()),
         "n": len(tx),
         "pos": int(pos.sum()), "noise": int(noise.sum()), "adj": int(adj.sum()),
         "unexp_all": int(unexp_all.sum()), "disc_typo": int(disc_typo.sum()), "unexp": int(unexp.sum()),
@@ -310,18 +330,20 @@ def dynamic_rules(S):
                          f"(within a factor of {np.exp(lu):.1f}, the mild IQR fence), so the quantity sign is probably a typo; |quantity| is in quantity_corrected")
         if S["qty_missing_ok"]:
             parts.append(f"{S['qty_missing_ok']:,} have quantity 0 and a sales value that matches the product's typical sales per line "
-                         f"(within a factor of {np.exp(ls):.1f}), so the quantity is probably just missing and the money is kept")
+                         f"(within a factor of {np.exp(ls):.1f}), so the quantity is probably just missing and the money is kept. "
+                         f"A default quantity goes in quantity_imputed (the product's median quantity on normal lines: "
+                         f"{S['qty_imputed_median']:,} row(s); 1 where the product has too few normal lines: {S['qty_imputed_default']:,} row(s))")
         extra.append(("Q5-3", "Quantity of 0 or less with money, but the money looks normal", typo_q,
             ("FLAG", "rule",
              "; ".join(parts) + ". Originals are untouched.",
-             "transaction_flags.parquet (flag_qty_sign_typo, flag_qty_missing_money_ok, quantity_corrected)",
-             "Feature Agent: keep the sales value; use quantity_corrected where present. Probable typo, not confirmed.")))
+             "transaction_flags.parquet (flag_qty_sign_typo, flag_qty_missing_money_ok, quantity_corrected, quantity_imputed, quantity_imputed_source)",
+             "Feature Agent: keep the sales value; use quantity_corrected where present and quantity_imputed where the quantity is missing. Probable typo, not confirmed.")))
     if S["qty_np_sales"]:
         extra.append(("Q5-2", "Quantity of 0 or less but a positive sales value that does not look normal", S["qty_np_sales"],
             ("ESCALATE", "human_needed",
              "The row says no items were bought but money was recorded, and the amount is far from the product's usual price, or the product has too few normal lines to compare. A person should decide.",
              "transaction_flags.parquet (flag_qty_nonpos_with_sales)",
-             "Review a sample; decide whether to count the sales value.")))
+             "Review a sample; decide whether to count the sales value. These rows get no imputed quantity.")))
     rules["Q6"] = ("FLAG", "rule",
         f"{S['sales_np']:,} rows have a sales value of 0 or less. {S['zero_line']:,} are the zero lines above (nothing bought) and "
         f"{S['free_item']:,} are items with a real quantity but no money (free or fully discounted), flagged by rule.",
