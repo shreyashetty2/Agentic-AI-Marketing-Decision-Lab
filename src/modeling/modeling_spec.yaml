@@ -164,6 +164,9 @@ models:
     baseline: {column: usual_spend, sign: 1, name: "Usual spend"}
     feature_sets:
       usual_only: [usual_spend]       # the owner's own baseline formula, as the only input
+      # Feature-group iterations (mentor follow-up 10/16, same approach as Model 1): usual spend plus ONE group.
+      usual_plus_coupon: [usual_spend, coupon_lines_per_week_26w, share_spend_on_discount_26w]
+      usual_plus_campaign: [usual_spend, duration_days, is_type_b]
     candidates:   # owner_calibrated is Yuxin's current model (model2_value.py); the rest are her earlier ones and variations
       owner_calibrated:   {source: owner, owner_learner: calibrated, family: median_linear,
                            params: {quantile: 0.5, alpha: 0, solver: highs}, complexity: 1}
@@ -172,6 +175,12 @@ models:
       usual_only_linear:  {source: agent, family: linear, features: usual_only, params: {}, complexity: 1}
       deeper_forest:      {source: agent, family: forest, features: owner, params: *forest_deeper, complexity: 2}
       shallower_forest:   {source: agent, family: forest, features: owner, params: *forest_shallower, complexity: 2}
+      # Totals candidates (Evaluation Agent EVA-06: owner_calibrated's predicted total is 0.80 of actual):
+      owner_calibrated_totals: {source: owner, owner_learner: calibrated_totals, family: median_linear_totals,
+                                params: {}, complexity: 1}
+      owner_tweedie:      {source: owner, owner_learner: tweedie, family: tweedie, params: {power: 1.5}, complexity: 1}
+      usual_plus_coupon_linear:   {source: agent, family: linear, features: usual_plus_coupon, params: {}, complexity: 1}
+      usual_plus_campaign_linear: {source: agent, family: linear, features: usual_plus_campaign, params: {}, complexity: 1}
     default: owner_calibrated
     forward_chain: {min_train_rows: 80}
     locked_test_campaigns: 3

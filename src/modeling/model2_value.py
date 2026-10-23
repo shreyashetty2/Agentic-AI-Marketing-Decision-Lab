@@ -31,7 +31,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import HuberRegressor, LinearRegression, QuantileRegressor
+from sklearn.linear_model import HuberRegressor, LinearRegression, QuantileRegressor, TweedieRegressor
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -109,6 +109,42 @@ class UsualSpend:
 
     def predict(self, table: pd.DataFrame) -> np.ndarray:
         return table[USUAL].to_numpy()
+
+
+class TotalsCalibratedUsualSpend(CalibratedUsualSpend):
+    """The median line above, rescaled so its predictions on the training rows add up to actual spend.
+
+    Candidate for the Evaluation Agent's totals check (predicted total within 15% of actual): spend is
+    right-skewed, so a median line sits below the mean and its totals come out low (0.80 on the agent's
+    test campaigns). The single scale factor keeps the line's shape and only moves its level."""
+
+    def fit(self, train: pd.DataFrame):
+        super().fit(train)
+        fitted_total = float(super().predict(train).sum())
+        self.scale = float(train[LABEL].sum()) / fitted_total if fitted_total > 0 else 1.0
+        return self
+
+    def predict(self, table: pd.DataFrame) -> np.ndarray:
+        return self.scale * super().predict(table)
+
+
+class TweedieUsualSpend:
+    """Expected spend = exp(a) x (1 + usual spend)^b: a Tweedie regression (power 1.5, log link) on
+    log(1 + usual spend).
+
+    Candidate for the totals check: it models the MEAN of spend rather than its median, the standard
+    choice for skewed, non-negative amounts with some exact zeros (14 redeemers spent $0 on campaign
+    products), and it can never predict negative dollars."""
+
+    POWER = 1.5
+
+    def fit(self, train: pd.DataFrame):
+        self.model = TweedieRegressor(power=self.POWER, link="log", alpha=0, max_iter=1000)
+        self.model.fit(np.log1p(train[[USUAL]].to_numpy()), train[LABEL])
+        return self
+
+    def predict(self, table: pd.DataFrame) -> np.ndarray:
+        return self.model.predict(np.log1p(table[[USUAL]].to_numpy()))
 
 
 class TrainingMean:

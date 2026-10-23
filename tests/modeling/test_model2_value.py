@@ -8,8 +8,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from modeling.model2_value import (  # noqa: E402
-    LABEL, USUAL, CalibratedUsualSpend, UsualSpend, bootstrap_vs_benchmark, errors,
-    time_split, usual_spend, walk_forward_splits,
+    LABEL, USUAL, CalibratedUsualSpend, TotalsCalibratedUsualSpend, TweedieUsualSpend, UsualSpend,
+    bootstrap_vs_benchmark, errors, time_split, usual_spend, walk_forward_splits,
 )
 
 
@@ -90,3 +90,41 @@ def test_bootstrap_detects_a_uniformly_better_model():
     result = bootstrap_vs_benchmark(actual, actual + 1, actual + 3, np.array([1, 1, 2, 2, 3, 3]), n=200)
     assert result["diff"] == pytest.approx(-2.0)
     assert result["share_better"] == 1.0
+
+
+def _skewed_spend(n=400, seed=0):
+    # Right-skewed spend around a power law in usual spend, like the real data: mean well above median.
+    rng = np.random.default_rng(seed)
+    usual = rng.gamma(1.0, 15.0, n)
+    mean = 3.0 * (1 + usual) ** 0.6
+    return pd.DataFrame({USUAL: usual, LABEL: mean * rng.gamma(0.8, 1 / 0.8, n)})
+
+
+def test_totals_calibrated_matches_the_training_total_exactly():
+    train = _skewed_spend()
+    model = TotalsCalibratedUsualSpend().fit(train)
+    assert model.predict(train).sum() == pytest.approx(train[LABEL].sum())
+
+
+def test_totals_calibration_scales_a_low_median_line_up_and_keeps_its_shape():
+    train = _skewed_spend()
+    median_line = CalibratedUsualSpend().fit(train)
+    scaled = TotalsCalibratedUsualSpend().fit(train)
+    assert median_line.predict(train).sum() < train[LABEL].sum()      # a median line under-shoots totals
+    assert scaled.scale > 1
+    assert scaled.predict(train) == pytest.approx(scaled.scale * median_line.predict(train))
+
+
+def test_tweedie_recovers_a_power_law_mean():
+    usual = np.linspace(0, 60, 200)
+    train = pd.DataFrame({USUAL: usual, LABEL: 3.0 * (1 + usual) ** 0.6})
+    model = TweedieUsualSpend().fit(train)
+    assert model.predict(train) == pytest.approx(train[LABEL].to_numpy(), rel=1e-3)
+
+
+def test_tweedie_totals_are_close_and_predictions_are_positive():
+    train = _skewed_spend()
+    train.loc[:9, LABEL] = 0.0                                         # some $0 spenders, as in the real data
+    pred = TweedieUsualSpend().fit(train).predict(train)
+    assert (pred > 0).all()
+    assert pred.sum() / train[LABEL].sum() == pytest.approx(1.0, abs=0.05)
