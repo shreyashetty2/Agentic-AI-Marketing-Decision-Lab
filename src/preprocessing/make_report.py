@@ -31,7 +31,7 @@ PLAIN = {
               "They may mean something else. A person should look at them."),
     "Q5-3": ("No quantity, but the money looks normal",
              "Some lines record no items (or a negative count) yet have a normal sales value for that product. Either the sign is a typo or the quantity is missing.",
-             "Marked by rule: the money is kept and the quantity is corrected only where the sign was the problem. Not confirmed."),
+             "Marked by rule: the money is kept. Where the sign was the problem the quantity is corrected; where it is missing, a default (the product's usual quantity, else 1) goes in a separate column. Originals are untouched. Not confirmed."),
     "Q5": ("Lines with no quantity",
            "Some receipt lines record no items bought. Most also have no money attached, so they look like voided or placeholder lines.",
            "Counted as purchases, they would understate how much a household buys."),
@@ -198,7 +198,7 @@ def main():
     w("- `findings.csv` / `findings.json`: every check and its result")
     w("- `decision_log.csv` / `decision_log.json`: every decision, with the reason and who decided")
     w("- `coupon_clean.parquet`: coupon table without duplicates")
-    w("- `transaction_flags.parquet`: one row per transaction with true/false flag columns (zero lines, adjustment lines, non-merchandise, outlier levels)")
+    w("- `transaction_flags.parquet`: one row per transaction with true/false flag columns (zero lines, adjustment lines, non-merchandise, outlier levels) plus the corrected and default quantity columns")
     w("- `outlier_thresholds.json` / `outlier_sensitivity.csv`: the data-derived cut-offs and how many rows each rule flags")
     w("- `spine_household_campaign.parquet`: the household × campaign table the models use")
 
