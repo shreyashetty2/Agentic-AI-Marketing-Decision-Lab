@@ -56,3 +56,30 @@ No candidate passes all three rules, so the model in use stays and the locked ca
 - **The test set cannot separate close candidates.** With 113 rows, even the model in use's edge over plain
   usual spend (+$0.50) has a range that includes zero. Differences under about $1 are not distinguishable
   here; the data size, not the modeling, is the limit.
+
+## Round 2: Model 1's new feature groups, tried on Model 2
+
+The 2A columns built for Model 1's feature investigation (`reports/model1_feature_investigation.md`), added
+to usual spend one group at a time, then the four groups that helped Model 1 together. All least-squares
+lines, like the model in use, so totals stay on the mean and any change comes from the columns alone. Same
+rules, same 113 open rows; locked campaigns still unread.
+
+| Candidate | Columns added to usual spend | Avg error | Total / actual | Gap vs. in use (95% range) | Campaigns better |
+|---|---|---|---|---|---|
+| `usual_offer_fit_refined_linear` | coupon use on this campaign's products and commodities, share of spend on them | $8.64 | 0.94 | +0.07 (-0.33 to +0.56) | 6/8 |
+| `usual_promo_linear` | share of campaign products on promotion | $8.71 | 0.95 | 0.00 | 0/8 |
+| `usual_coupon_refined_linear` | coupon use in more detail (8-week, all-time, trip share, breadth) | $8.91 | 0.94 | -0.20 (-0.95 to +0.50) | 2/8 |
+| `usual_history_refined_linear` | redemption history in more detail | $9.49 | 0.93 | -0.78 (-1.44 to -0.10) | 3/8 |
+| `usual_demographics_linear` | demographics as numbers | $10.09 | 0.92 | -1.38 (-2.34 to -0.48) | 2/8 |
+| `usual_model1_new_groups_linear` | all four groups that helped Model 1 (21 columns) | $11.03 | 0.91 | -2.32 (-3.58 to -1.07) | 1/8 |
+
+**Decision unchanged: keep `usual_only_linear`.** No group passes rule 3.
+
+- Coupon use on the campaign's own products and commodities is the only group that leans positive, but by
+  $0.07.
+- `campaign_promo_share` carries no information here: it is 1.0 for 99% of Model 2's rows (one value per
+  campaign, almost always fully on promotion), so the line ignores it.
+- Redemption history and demographics are reliably **worse**, and the four groups together are the worst
+  candidate tested. On Model 1 (7,208 rows) these groups together gained +2.7 to +3.8 points; on Model 2,
+  where each training window has roughly 60-220 rows, 22 columns mostly fit noise. The same columns help one
+  model and hurt the other, which points to data size, not missing features, as Model 2's limit.

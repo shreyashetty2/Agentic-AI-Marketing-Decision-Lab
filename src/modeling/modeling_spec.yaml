@@ -167,6 +167,25 @@ models:
       # Feature-group iterations (mentor follow-up 10/16, same approach as Model 1): usual spend plus ONE group.
       usual_plus_coupon: [usual_spend, coupon_lines_per_week_26w, share_spend_on_discount_26w]
       usual_plus_campaign: [usual_spend, duration_days, is_type_b]
+      # The 2A columns added for Model 1's feature investigation (reports/model1_feature_investigation.md), one
+      # group at a time on top of usual spend, then the four groups that helped Model 1 together.
+      usual_plus_coupon_refined: [usual_spend, coupon_lines_per_week_8w, coupon_lines_per_week_all, coupon_trip_share_26w,
+                                  coupon_commodities_26w]
+      usual_plus_offer_fit_refined: [usual_spend, campaign_product_coupon_lines_per_week_26w,
+                                     campaign_commodity_coupon_lines_per_week_26w, campaign_product_share_26w]
+      usual_plus_history_refined: [usual_spend, redeemed_last_campaign, past_redemptions_in_campaign_commodities,
+                                   past_redemption_rate]
+      usual_plus_demographics: [usual_spend, has_demographics, classification_1_code, classification_3_code,
+                                classification_4_code, classification_5_code, kid_count_code, classification_2_x,
+                                classification_2_y, classification_2_z, homeowner_flag, renter_flag]
+      usual_plus_promo: [usual_spend, campaign_promo_share]
+      usual_plus_model1_new_groups: [usual_spend, coupon_lines_per_week_8w, coupon_lines_per_week_all, coupon_trip_share_26w,
+                                     coupon_commodities_26w, campaign_product_coupon_lines_per_week_26w,
+                                     campaign_commodity_coupon_lines_per_week_26w, campaign_product_share_26w,
+                                     redeemed_last_campaign, past_redemptions_in_campaign_commodities, past_redemption_rate,
+                                     has_demographics, classification_1_code, classification_3_code, classification_4_code,
+                                     classification_5_code, kid_count_code, classification_2_x, classification_2_y,
+                                     classification_2_z, homeowner_flag, renter_flag]
     candidates:   # owner_calibrated is Yuxin's current model (model2_value.py); the rest are her earlier ones and variations
       owner_calibrated:   {source: owner, owner_learner: calibrated, family: median_linear,
                            params: {quantile: 0.5, alpha: 0, solver: highs}, complexity: 1}
@@ -181,6 +200,13 @@ models:
       owner_tweedie:      {source: owner, owner_learner: tweedie, family: tweedie, params: {power: 1.5}, complexity: 1}
       usual_plus_coupon_linear:   {source: agent, family: linear, features: usual_plus_coupon, params: {}, complexity: 1}
       usual_plus_campaign_linear: {source: agent, family: linear, features: usual_plus_campaign, params: {}, complexity: 1}
+      # Model 1's new feature groups, tried on Model 2 (least squares, so totals stay on the mean):
+      usual_coupon_refined_linear:   {source: agent, family: linear, features: usual_plus_coupon_refined, params: {}, complexity: 1}
+      usual_offer_fit_refined_linear: {source: agent, family: linear, features: usual_plus_offer_fit_refined, params: {}, complexity: 1}
+      usual_history_refined_linear:  {source: agent, family: linear, features: usual_plus_history_refined, params: {}, complexity: 1}
+      usual_demographics_linear:     {source: agent, family: linear, features: usual_plus_demographics, params: {}, complexity: 1}
+      usual_promo_linear:            {source: agent, family: linear, features: usual_plus_promo, params: {}, complexity: 1}
+      usual_model1_new_groups_linear: {source: agent, family: linear, features: usual_plus_model1_new_groups, params: {}, complexity: 1}
     default: owner_calibrated
     forward_chain: {min_train_rows: 80}
     locked_test_campaigns: 3
