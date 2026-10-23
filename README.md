@@ -125,9 +125,9 @@ For a given household and campaign, how much does receiving the campaign actuall
 - **Confounder filter:** `causal_data` joined to `transaction_data` on shared `PRODUCT_ID`/`STORE_ID`/`WEEK_NO` keys flags purchases driven by in-store displays or circulars, isolating direct-mail influence from baseline organic habit and store-level promotions.
 - **Limitation:** campaign targeting is non-random — treated households spend ~4.6x more, pre-campaign, than control households. This is framed as **uplift modeling that adjusts for observed confounders**, not a randomized-experiment causal estimate.
 
-**Methodology:** T-Learner (two-learner) architecture — Model T (treated households) and Model C (control households) trained independently; `Uplift = P(buy | Treatment) − P(buy | Control)`. Preferred over a single (S-learner) model, which tends to ignore the treatment flag when it's dominated by strong baseline features like past spend.
+**Methodology:** started as a T-Learner (two-learner) architecture — Model T (treated households) and Model C (control households) trained independently; `Uplift = P(buy | Treatment) − P(buy | Control)`. Preferred over a single (S-learner) model, which tends to ignore the treatment flag when it's dominated by strong baseline features like past spend. As of 10/21, the model in use is an **X-learner** built on top of the same idea: it corrects for the fact that treated and control households are mailed at a roughly 12:1 ratio, which the plain T-learner doesn't account for. 5 approaches were compared head to head (plain T-learner, a propensity-weighted T-learner, X-learner, a doubly-robust/AIPW learner, entropy balancing); the X-learner was the only one with a real, positive gain on test campaigns that also held up directionally on a genuinely held-out check. Full comparison: [`reports/model3_candidate_comparison.md`](reports/model3_candidate_comparison.md).
 
-**Evaluation:** Qini Curve (uplift cumulative gain). Standard ROC-AUC is invalid here because real-world counterfactuals can't be observed directly (a household can't be simultaneously mailed and not mailed); the Qini curve instead measures true incremental conversion.
+**Evaluation:** Qini Curve (uplift cumulative gain), propensity-weighted and computed within each campaign (`ipw_stratified_qini`) rather than pooled across the whole population — the pooled version mostly measures who the retailer chose to mail, not what the mailer did. Standard ROC-AUC is invalid here because real-world counterfactuals can't be observed directly (a household can't be simultaneously mailed and not mailed). An E-value sensitivity check (currently 1.35) is also reported alongside the Qini score, quantifying how strong an unmeasured confounder would need to be to fully explain the result away.
 
 **Key business finding (the value-add over Model 1):** current campaigns disproportionately target the heaviest, most loyal spenders, who tend to buy the product anyway — a propensity model (Model 1) would misallocate budget to them because their overall purchase probability is high. Untargeted, moderate-spending households show the largest actual response gap between "mailed" and "not mailed." Uplift modeling isolates this true incremental impact to drive real incremental revenue, which Model 1 alone cannot surface.
 
@@ -306,6 +306,7 @@ python src/modeling/model3_uplift.py     # Step 3, Modeling Agent: Model 3 (upli
 python src/modeling/model3_redemption_analysis.py  # Model 3 redemption-segmentation analysis
 python src/modeling/model3_product_lookup.py                 # Model 3: every eligible product, all campaigns, ranked + saved to CSV
 python src/modeling/model3_product_lookup.py --campaign 29   # Model 3: product-level drill-down for one campaign (name, uplift, redemption use)
+python src/modeling/model3_sure_things.py          # Model 3: classifier flagging likely-wasted sends among already-mailed households
 python src/modeling/model1_evaluation.py           # Model 1: validate the baseline, feature importance, model x feature comparison (~4 min)
 python src/modeling/model1_feature_search.py       # Model 1: which features add something beyond coupon use (~45 min; --quick ~15)
 python src/modeling/agent.py --model all --mode both  # Step 3, Modeling Agent: reproduce owners' numbers, forward-chain, choose (~2 min)
@@ -359,11 +360,11 @@ Each `model{n}_baseline.py` trains on the earliest 70% of campaigns (by `start_d
 
 | Name | UNI | Primary Focus |
 |---|---|---|
-| Yuxin Cai | yc4763 | TBD |
-| Pranav Jain | pj2459 | TBD |
-| Shreya Shetty | svs2148 | TBD |
-| John Won | jjw2206 | TBD |
-| Zhiyan Yang | zy2745 | TBD |
+| Yuxin Cai | yc4763 | Model 2 (Expected Financial Value) |
+| Pranav Jain | pj2459 | Agent architecture (Modeling, Evaluation & Lead Agents) |
+| Shreya Shetty | svs2148 | Model 3 (True Incremental Uplift) |
+| John Won | jjw2206 | Model 1 (Campaign Response Probability) |
+| Zhiyan Yang | zy2745 | Data Agent |
 
 **Mentors (TD Bank):** Shira Appelbaum, Elif Ulusal
 **Course:** ENGI E4800, Columbia Data Science Institute
@@ -388,3 +389,30 @@ Each `model{n}_baseline.py` trains on the earliest 70% of campaigns (by `start_d
 | Midterm report | 11/8 |
 | Poster session | 12/14 |
 | Final report | 12/20 |
+
+### Progress so far
+
+**Week of 10/6 — Data and feature foundations**
+- Data Agent: household x campaign spine, ingestion, validation (Claudia).
+- Feature Agent 2A: shared feature table feeding all three models (Pranav).
+- Feature Agent 2B: per-model filtered tables, leakage rail (Shreya).
+- Model 1 and Model 2 baselines (Yuxin).
+
+**Week of 10/12 — First real models**
+- Model 3: redemption-segmentation outcome, full T-learner uplift model on the complete 43,396-row dataset, demographic and product-level analysis (Shreya).
+- Model 1 evaluation: baseline validated against a simple rule (John).
+- Data Agent: outlier rules, typo detection, quality report; moved into `src/preprocessing` (Claudia).
+- Model 2: value model (Yuxin).
+- Modeling Agent and Evaluation Agent: shared orchestration layer for all three models, calling each owner's code unchanged (Pranav).
+
+**Week of 10/17 — Evaluation discipline and causal inference**
+- Model 3 results published to the repo; propensity-weighted Qini accepted as the official evaluation metric.
+- Lead Agent: one front door that runs the Data, Feature, Modeling and Evaluation Agents in order and explains the result in plain language (Pranav).
+- Model 3: confounder handled as a model feature instead of a filter; a standalone classifier flagging likely-wasted mail sends; 5 causal-inference approaches compared head to head (weighted T-learner, X-learner, doubly-robust/AIPW learner, entropy balancing); an E-value sensitivity check added. X-learner adopted as Model 3's model in use after 2 other candidates that looked like wins failed a genuinely held-out check (Shreya).
+
+**Week of 10/22 — Model 1 and Model 2 on the shared agents, more Data Agent fixes**
+- Model 1: feature-group candidates, 18 new feature columns, automated feature search (John).
+- Model 2: totals candidates tested through the shared agents (Yuxin).
+- Data Agent: switch to exclude gas-kiosk and miscellaneous transaction lines from spend features; a default for probable missing-quantity rows (Claudia).
+
+Full candidate comparisons and the reasoning behind each model's current choice are published under [`reports/`](reports/).
