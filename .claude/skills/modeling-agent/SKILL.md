@@ -78,6 +78,7 @@ is "redeemers caught": of the households that really redeemed, how many are in t
    the campaign's products, redemption history in more detail, demographics as numbers)
 16. Logistic regression on log-scaled columns (shrinks very large counts first), same 11 columns
 17. Logistic regression on log-scaled columns, 39 columns
+18. Logistic regression on log-scaled columns, 24 columns (the 21 plus the 3 coupon-habit columns that matter most)
 
 Running now -- about 4 minutes.
 ```

@@ -71,7 +71,7 @@ models:
     name: "Campaign Response Probability"
     owner: "Yuxin (model1_baseline.py), evaluated by John (model1_evaluation.py)"
     # Every committed model1_*.py must be listed; a new one is flagged (it may be a newer model).
-    scripts: {current: model1_baseline.py, others: [model1_evaluation.py, model1_feature_search.py]}
+    scripts: {current: model1_baseline.py, others: [model1_evaluation.py, model1_feature_search.py, model1_importance.py]}
     table: model1_table.parquet
     task: classify
     label: redeemed_flag
@@ -113,6 +113,16 @@ models:
                       redeemed_last_campaign, past_redemptions_in_campaign_commodities,
                       classification_1_code, classification_3_code, classification_4_code, classification_5_code,
                       kid_count_code, classification_2_x, classification_2_y, classification_2_z, homeowner_flag, renter_flag]
+      # extended + the 3 new columns that carry the new columns' gain for the log-scaled logistic regression
+      # (src/modeling/model1_importance.py): coupon breadth, share of trips with a coupon, all-history coupon use.
+      # No demographics. Chosen by looking at the open campaigns, so only the locked check can confirm it.
+      lean: [spend_per_week_26w, trips_per_week_26w, coupon_lines_per_week_26w, share_spend_on_discount_26w,
+             past_redemption_rate, campaign_product_spend_per_week_26w, campaign_product_share_26w,
+             history_weeks_before_cutoff, duration_days, is_type_a, is_type_b,
+             spend_per_week_8w, trips_per_week_8w, days_since_last_trip, avg_basket_value_26w,
+             n_departments_26w, past_redemptions, past_campaigns_received, past_campaigns_redeemed,
+             other_campaigns_live_at_cutoff, has_demographics,
+             coupon_commodities_26w, coupon_trip_share_26w, coupon_lines_per_week_all]
     candidates:
       owner_forest:      {source: owner, owner_learner: forest, family: forest, params: *forest, complexity: 2}
       owner_logistic:    {source: owner, owner_learner: logistic, family: logistic, params: {max_iter: 1000}, complexity: 1}
@@ -134,6 +144,9 @@ models:
       extended_plus_forest:        {source: agent, family: forest, features: extended_plus, params: *forest, complexity: 2}
       owner_cols_logistic_log:     {source: agent, family: logistic_log, features: owner, params: {C: 0.05, max_iter: 3000}, complexity: 1}
       extended_plus_logistic_log:  {source: agent, family: logistic_log, features: extended_plus, params: {C: 0.05, max_iter: 3000}, complexity: 1}
+      lean_logistic_log:           {source: agent, family: logistic_log, features: lean, params: {C: 0.05, max_iter: 3000}, complexity: 1}
+    # Finalists, fixed on 2026-10-24 BEFORE the locked-campaign check (reports/model1_final_report.md):
+    # extended_plus_logistic_log, lean_logistic_log, extended_plus_forest. No Model 1 tuning after that check.
     default: owner_forest
     forward_chain: {min_train_rows: 500, min_train_positives: 50}
     locked_test_campaigns: 5          # campaigns 21-25, the same five Pranav's Model 1 experiments locked
