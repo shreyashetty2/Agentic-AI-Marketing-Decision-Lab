@@ -28,7 +28,9 @@ measured.
 
 - **Model 1** ranks mailed households by how likely they are to redeem a coupon, so a marketer can mail the most
   likely first and forecast redemptions. Scored by "redeemers caught": of the households that really redeemed,
-  the share in the model's top 20%. The simple rule to beat: mail the households that redeemed most before.
+  the share in the model's top part of each list, averaged over mailing the top 5%, 10%, ... up to 50% (the
+  marketer picks how deep to mail); the top 20% alone is also reported. The simple rule to beat: mail the
+  households that redeemed most before.
 - **Model 2** forecasts the dollars a mailed household will spend on the campaign's products, so the Decision
   Lab can weigh sales against the cost of the discounts. Scored by the average dollar error per household (lower
   is better). The simple rule to beat: guess the household's usual spend.
@@ -84,8 +86,9 @@ Read `data/processed/lead_agent/run_summary.json`. Its `steps` list each agent's
 **Model N: <what it is for, in a few words>**
 <The verdict in one or two sentences that make sense to someone who knows nothing else. Lead with how much better
 the model is than having no model (`no_model_score`), then the simple rule, each explained in the same sentence.
-E.g. "Ready to use. Mailing its top 20% reaches 56% of the households that will redeem, about 2.8 times what
-mailing 20% at random would reach (20%), and more than mailing the households that redeemed most before (48%)."
+E.g. "Ready to use. Mailing the top part of each list (averaged over 5% to 50% deep) reaches 61% of the households
+that will redeem, about 2.2 times what mailing at random would reach (28%), and more than mailing the households
+that redeemed most before (50%)."
 or "Not ready yet. Its dollar forecasts miss by $8.32 per household, against $10.17 if you guessed the same
 average amount for everyone, but added up they come to only 80% of what households really spent.">
 

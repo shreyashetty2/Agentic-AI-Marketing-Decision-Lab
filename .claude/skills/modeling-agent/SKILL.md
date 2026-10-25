@@ -17,8 +17,10 @@ or anything about sealed campaigns unless asked.
 
 - **Model 1:** will a mailed household redeem a coupon?
   - **Score:** "redeemers caught" -- in each test campaign, rank the mailed households by the model's
-    predicted chance of redeeming, take the top 20%, and count how many of the campaign's actual
-    redeemers are in that group. Higher is better. (`within_campaign_capture`; show as a %.)
+    predicted chance of redeeming, take the top part of the list, and count how many of the campaign's
+    actual redeemers are in it, averaged over mailing the top 5%, 10%, ... up to 50% (the marketer picks
+    the depth). Higher is better. (`within_campaign_capture_avg`; show as a %. The top 20% alone,
+    `within_campaign_capture`, is also reported.)
   - **Simple rule to beat:** mail the households that redeemed most often before.
 - **Model 2:** how many dollars will a mailed household spend on the campaign's products?
   - **Score:** average dollar error per household, how far off the prediction is. Lower is better.
@@ -61,7 +63,8 @@ most likely ones first and forecast how many redemptions a campaign will get.
 
 **The test:** each model learns only from campaigns that had already finished, then predicts the next
 campaign, which it has never seen -- campaign after campaign, as it would be used for real. The score
-is "redeemers caught": of the households that really redeemed, how many are in the model's top 20%.
+is "redeemers caught": of the households that really redeemed, how many are in the top part of the model's
+list, averaged over mailing the top 5% to 50%.
 
 **Models I'm going to run:**
 1. Random forest (many yes/no decision trees that vote): 300 trees, 6 levels deep, 11 columns -- the team's current model

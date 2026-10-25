@@ -1,7 +1,7 @@
 """Scores used by the Modeling Agent (to choose) and the Evaluation Agent (to judge).
 
 Existing, already-validated metric code is imported, not copied:
-  within_campaign_capture, within_campaign_auc   John, src/modeling/model1_evaluation.py
+  within_campaign_capture, within_campaign_capture_avg, within_campaign_auc   John, src/modeling/model1_evaluation.py
   qini_points                                     Shreya, src/modeling/model3_uplift.py (pooled Qini)
 New here:
   mae                    Model 2's average dollar error
@@ -19,9 +19,9 @@ import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.model_selection import GroupKFold
 
-from modeling.model1_evaluation import within_campaign_auc, within_campaign_capture
+from modeling.model1_evaluation import within_campaign_auc, within_campaign_capture, within_campaign_capture_avg
 
-__all__ = ["within_campaign_auc", "within_campaign_capture", "mae", "stratified_qini", "fit_propensity",
+__all__ = ["within_campaign_auc", "within_campaign_capture", "within_campaign_capture_avg", "mae", "stratified_qini", "fit_propensity",
            "balance", "cluster_bootstrap", "forecast_coverage", "e_value", "METRICS", "metric"]
 
 
@@ -151,6 +151,7 @@ def e_value(treated_rate: float, control_rate: float) -> float:
 METRICS = {
     "within_campaign_auc": (lambda d: within_campaign_auc(d["campaign"], d["label"], d["score"]), True),
     "within_campaign_capture": (lambda d: within_campaign_capture(d["campaign"], d["label"], d["score"]), True),
+    "within_campaign_capture_avg": (lambda d: within_campaign_capture_avg(d["campaign"], d["label"], d["score"]), True),
     "mae": (lambda d: mae(d["label"], d["score"]), False),
     "ipw_stratified_qini": (lambda d: stratified_qini(d, weighted=True), True),
     "raw_stratified_qini": (lambda d: stratified_qini(d, weighted=False), True),

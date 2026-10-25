@@ -65,3 +65,20 @@ def test_rule_ties_are_broken_randomly_not_by_row_order():
     y = [1] + [0] * 9          # redeemer sits first; a tie-blind sort would always catch it
     score = np.zeros(10)
     assert within_campaign_capture(campaign, y, score, n_seeds=500) == pytest.approx(0.2, abs=0.05)
+
+
+def test_capture_avg_equals_the_mean_of_capture_over_depths():
+    from modeling.model1_evaluation import CURVE_SHARES, within_campaign_capture_avg
+    rng = np.random.default_rng(1)
+    campaign = np.repeat([1, 2, 3], [40, 25, 60])
+    y = rng.integers(0, 2, len(campaign))
+    score = np.round(rng.random(len(campaign)), 1)          # many ties, so the tie-break matters
+    by_depth = [within_campaign_capture(campaign, y, score, share=s, n_seeds=5, seed=2) for s in CURVE_SHARES]
+    assert within_campaign_capture_avg(campaign, y, score, n_seeds=5, seed=2) == pytest.approx(np.mean(by_depth))
+
+
+def test_random_expected_capture_avg_is_about_the_average_depth():
+    from modeling.model1_evaluation import random_expected_capture_avg
+    campaign = np.repeat([1, 2], [100, 200])
+    y = np.ones(300, int)
+    assert random_expected_capture_avg(campaign, y) == pytest.approx(0.275)

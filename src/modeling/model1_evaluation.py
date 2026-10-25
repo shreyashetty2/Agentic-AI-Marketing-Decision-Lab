@@ -138,11 +138,39 @@ def within_campaign_capture(campaign, y, score, share: float = TOP_SHARE, n_seed
     return caught / (n_seeds * total)
 
 
+CURVE_SHARES = tuple(round(0.05 * k, 2) for k in range(1, 11))   # mailing depths 5%, 10%, ..., 50%
+
+
+def within_campaign_capture_avg(campaign, y, score, shares=CURVE_SHARES, n_seeds: int = 20, seed: int = 0) -> float:
+    """Redeemers caught, averaged over mailing depths 5%, 10%, ..., 50% of EACH campaign's list.
+
+    Model 1's main measure from 10/24 (reports/model1_final_report.md): in the Decision Lab the marketer picks how
+    deep to mail, so the whole top half of the list matters, and averaging over depths is about twice as steady as
+    the top 20% alone (which moves in whole redeemers). Same random tie-breaking as within_campaign_capture, so it
+    equals the mean of within_campaign_capture over `shares`, computed in one pass."""
+    y, score = np.asarray(y), np.asarray(score, dtype=float)
+    total = y.sum()
+    if total == 0:
+        return np.nan
+    groups, rng, caught = _groups(campaign), np.random.default_rng(seed), np.zeros(len(shares))
+    for _ in range(n_seeds):
+        tiebreak = rng.random(len(y))
+        for idx in groups.values():
+            cum = np.cumsum(y[idx[np.lexsort((tiebreak[idx], -score[idx]))]])
+            caught += cum[[max(1, int(round(len(idx) * s))) - 1 for s in shares]]
+    return float(caught.mean() / (n_seeds * total))
+
+
 def random_expected_capture(campaign, y, share: float = TOP_SHARE) -> float:
     """What random targeting reaches with the same per-campaign list sizes (about 20%)."""
     y = np.asarray(y)
     hit = sum(max(1, int(round(len(idx) * share))) / len(idx) * y[idx].sum() for idx in _groups(campaign).values())
     return hit / y.sum()
+
+
+def random_expected_capture_avg(campaign, y, shares=CURVE_SHARES) -> float:
+    """Random targeting on within_campaign_capture_avg (about 27.5%, the average of 5%..50%)."""
+    return float(np.mean([random_expected_capture(campaign, y, s) for s in shares]))
 
 
 def within_campaign_auc(campaign, y, score) -> float:

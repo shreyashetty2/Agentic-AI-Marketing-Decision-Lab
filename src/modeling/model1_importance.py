@@ -17,6 +17,16 @@ Each test campaign is predicted by a model trained only on campaigns that ended 
   C. Robustness: gains by campaign type, at other mailing depths (10/20/30/50%), predicted vs. actual totals
   D. Optional (--compare-processed DIR): the same models on a second set of tables, e.g. 2A rebuilt with
      --exclude-non-merchandise
+  E. --open-questions (separate, about 3 minutes), the evidence behind the 10/24 decisions in
+     reports/model1_final_report.md:
+     - measures: how steady each Model 1 measure is (top-20% capture, capture averaged over mailing depths 5-50%,
+       within-campaign AUC), from the finalists' gaps over the baseline on the open campaigns; and, after the
+       locked check, the same gaps on the Modeling Agent's frozen locked-campaign predictions
+     - demographics: what having a demographic record goes with, whether it predicts redemption at the same
+       baseline score, and the age mix of each model's top 20% compared with everyone mailed
+     - forecasts: actual vs. predicted redemptions per campaign over time, honest-range coverage, and two ideas
+       (weighting recent campaigns more; Type A interactions; training on recent campaigns only)
+     This is the only part that reads the locked campaigns (frozen predictions only), and it never trains on them.
 
 Gaps are in AUC points (within-campaign ranking) and capture points (redeemers caught in each campaign's top 20%),
 with 95% intervals from resampling whole households (model1_feature_search.paired_gap).
@@ -24,6 +34,7 @@ with 95% intervals from resampling whole households (model1_feature_search.paire
 Run from the repo folder (about 20 minutes; --quick skips the one-column-at-a-time retrains, about 8):
     python src/modeling/model1_importance.py
     python src/modeling/model1_importance.py --compare-processed data/processed_nonmerch
+    python src/modeling/model1_importance.py --open-questions
 
 Output: data/processed/model1_importance/ report.md and one CSV per table
 """
@@ -46,7 +57,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # lets `modeling.
 
 from modeling.learners import signed_log1p  # noqa: E402
 from modeling.model1_baseline import FEATURES as BASELINE, LABEL, load_table  # noqa: E402
-from modeling.model1_evaluation import md_table, within_campaign_auc, within_campaign_capture  # noqa: E402
+from modeling.model1_evaluation import (md_table, within_campaign_auc, within_campaign_capture,  # noqa: E402
+                                        within_campaign_capture_avg)
+from evaluation.metrics import forecast_coverage  # noqa: E402
 from modeling.model1_feature_search import ADOPTED, EXTENDED, EXTENDED_PLUS, open_folds, paired_gap  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -312,6 +325,144 @@ def render(results, drop_one, perm, curve, depth, totals, compare_rows, compare,
     return "\n".join(lines)
 
 
+MEASURES = {"capture, top 20%": lambda c, y, s, n: within_campaign_capture(c, y, s, n_seeds=n),
+            "capture, averaged over 5-50%": lambda c, y, s, n: within_campaign_capture_avg(c, y, s, n_seeds=n),
+            "within-campaign AUC": lambda c, y, s, n: within_campaign_auc(c, y, s)}
+
+
+def measure_gaps(d: pd.DataFrame, a: np.ndarray, b: np.ndarray, reps: int = 300, seed: int = 3) -> list[dict]:
+    """a minus b on each measure, with the spread (standard deviation) and 95% range from resampling households."""
+    d = d[["household_key", "campaign", LABEL]].reset_index(drop=True).assign(a=np.asarray(a), b=np.asarray(b))
+    gap = lambda x, n: np.array([f(x["campaign"], x[LABEL], x["a"], n) - f(x["campaign"], x[LABEL], x["b"], n)
+                                 for f in MEASURES.values()])
+    rows_of = [ix.to_numpy() for ix in d.groupby("household_key").groups.values()]
+    rng = np.random.default_rng(seed)
+    draws = np.array([gap(d.iloc[np.concatenate([rows_of[k] for k in rng.integers(0, len(rows_of), len(rows_of))])], 1)
+                      for _ in range(reps)])
+    point = gap(d, 20)
+    return [{"measure": m, "gap": point[i], "spread": draws[:, i].std(), "gap_over_spread": point[i] / draws[:, i].std(),
+             "low": np.percentile(draws[:, i], 2.5), "high": np.percentile(draws[:, i], 97.5)} for i, m in enumerate(MEASURES)]
+
+
+def recency_weighted(r: Runner, cols: list[str], half_life: float) -> np.ndarray:
+    """Log-scaled logistic where a training campaign's weight halves every `half_life` days before the test campaign."""
+    parts = []
+    for f in r.folds:
+        tr, te = r.t[r.t["campaign"].isin(f["train_campaigns"])], r.t[r.t["campaign"] == f["test_campaign"]]
+        weight = 0.5 ** ((te["start_day"].iloc[0] - tr["start_day"]).to_numpy() / half_life)
+        m = LEARNERS["logistic_log"]().fit(tr[cols], tr[LABEL], logisticregression__sample_weight=weight)
+        parts.append(m.predict_proba(te[cols])[:, 1])
+    return np.concatenate(parts)
+
+
+def run_open_questions(processed: Path, out_dir: Path) -> None:
+    t = load_table(processed)
+    t[EXTENDED_PLUS] = t[EXTENDED_PLUS].fillna(0)
+    r = Runner(t, open_folds(t))
+    baseline = r.predict(BASELINE, "forest")
+    finalists = {"lean_logistic_log": r.predict(LEAN, "logistic_log"), "extended_plus_logistic_log": r.predict(EXTENDED_PLUS, "logistic_log"),
+                 "extended_plus_forest": r.predict(EXTENDED_PLUS, "forest")}
+    sections = []
+
+    # ---- measures
+    rows = [{"campaigns": "open (8-20)", "finalist": n, **g} for n, s in finalists.items() for g in measure_gaps(r.test, s, baseline)]
+    locked_path = processed / "modeling_agent/model1/locked_predictions.parquet"
+    w = None
+    if locked_path.exists():
+        lp = pd.read_parquet(locked_path)
+        w = lp.pivot_table(index=["household_key", "campaign"], columns="candidate_id", values="score").reset_index()
+        w = w.merge(lp.drop_duplicates(["household_key", "campaign"])[["household_key", "campaign", "label", "start_day", "end_day"]]
+                    .rename(columns={"label": LABEL}), on=["household_key", "campaign"])
+        rows += [{"campaigns": "locked (21-25)", "finalist": n, **g} for n in finalists
+                 for g in measure_gaps(w, w[n].to_numpy(), w["owner_forest"].to_numpy())]
+    res = pd.DataFrame(rows)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    res.to_csv(out_dir / "measures.csv", index=False)
+    sections += ["## Measures: how steady each one is", "",
+                 "Gap of each finalist over the baseline forest, in points; spread = standard deviation over 300 household "
+                 "resamples; gap_over_spread = how many spreads the gap is (higher = steadier). Locked rows score the "
+                 "Modeling Agent's frozen locked-campaign predictions.", "",
+                 md_table(res.assign(**{c: (100 * res[c]).round(2) for c in ("gap", "spread", "low", "high")},
+                                     gap_over_spread=res["gap_over_spread"].round(1))), ""]
+
+    # ---- demographics
+    has = t.groupby("has_demographics").agg(rows=(LABEL, "size"), redeem_rate=(LABEL, "mean"),
+                                            coupon_lines_per_week=("coupon_lines_per_week_26w", "median"),
+                                            spend_per_week=("spend_per_week_26w", "median"),
+                                            trips_per_week=("trips_per_week_26w", "median")).reset_index()
+    d = r.test.assign(score=baseline)
+    d["baseline_fifth"] = d.groupby("campaign")["score"].transform(lambda x: pd.qcut(x.rank(method="first"), 5, labels=False) + 1)
+    same_score = d.groupby(["baseline_fifth", "has_demographics"])[LABEL].mean().unstack().reset_index()
+    same_score.columns = ["baseline score fifth (5 = top)", "redeem rate, no record", "redeem rate, has record"]
+    mix = []
+    for name, s in {"everyone mailed": None, "baseline forest": baseline, **finalists}.items():
+        x = r.test if s is None else r.test.assign(s=s).loc[lambda q: q.groupby("campaign")["s"].rank(ascending=False, pct=True) <= 0.2]
+        age = x[x["has_demographics"] == 1]["classification_1_code"].value_counts(normalize=True)
+        mix.append({"who": name, "rows": len(x), "has record": x["has_demographics"].mean(),
+                    **{f"age group {k}": age.get(k, 0.0) for k in range(1, 7)}})
+    mix = pd.DataFrame(mix)
+    pct = lambda df, cols: df.assign(**{c: df[c].map(lambda v: f"{100 * v:.1f}%") for c in cols})
+    sections += ["## Demographics", "", "Households with and without a demographic record (all 7,208 mailed rows; medians):", "",
+                 md_table(pct(has.round(2), ["redeem_rate"])), "",
+                 "Redemption rate at the same baseline score (open campaigns, fifths of each campaign's baseline score):", "",
+                 md_table(pct(same_score, ["redeem rate, no record", "redeem rate, has record"])), "",
+                 "Who is in each model's top 20% (open campaigns): share with a record, and age mix among those with one:", "",
+                 md_table(pct(mix, [c for c in mix if c not in ("who", "rows")])), ""]
+
+    # ---- forecasts
+    cal = t[["campaign", "campaign_type", "start_day"]].drop_duplicates().set_index("campaign")
+    per = r.test.assign(p=baseline).groupby("campaign").agg(actual=(LABEL, "sum"), predicted=("p", "sum")).assign(set="open")
+    if w is not None:
+        per = pd.concat([per, w.groupby("campaign").agg(actual=(LABEL, "sum"), predicted=("owner_forest", "sum")).assign(set="locked")])
+    per = per.join(cal).sort_values("start_day").reset_index()
+    per["actual / predicted"] = (per["actual"] / per["predicted"]).round(2)
+    coverage = []
+    if w is not None:
+        for name, col in (("baseline forest", "owner_forest"), ("lean_logistic_log", "lean_logistic_log")):
+            both = pd.concat([r.test.assign(score=baseline if col == "owner_forest" else finalists[col], locked=False),
+                              w.assign(score=w[col], locked=True)])
+            pc = (both.assign(var=both["score"] * (1 - both["score"])).groupby("campaign")
+                  .agg(expected=("score", "sum"), chance_var=("var", "sum"), actual=(LABEL, "sum"), start_day=("start_day", "first"),
+                       end_day=("end_day", "first"), locked=("locked", "first")).reset_index())
+            cov = forecast_coverage(pc)
+            pcs = pc.sort_values("start_day").reset_index(drop=True).assign(inside=cov["inside"], phi=cov["phi"])
+            lk = pcs[pcs["locked"]]
+            coverage.append({"model": name, "campaigns inside honest range, all": f"{int(sum(cov['inside']))} of {cov['n']}",
+                             "locked campaigns inside": f"{int(lk['inside'].sum())} of {len(lk)}",
+                             "range widening at the locked check (phi)": round(float(lk["phi"].iloc[0]), 2)})
+    ideas = [{"idea": "lean, as is", **r.score(finalists["lean_logistic_log"]), "predicted total": finalists["lean_logistic_log"].sum()}]
+    for hl in (120, 240, 480):
+        s = recency_weighted(r, LEAN, hl)
+        ideas.append({"idea": f"lean, recent campaigns weighted more (half-life {hl} days)", **r.score(s), "predicted total": s.sum()})
+    tt = t.copy()
+    inter = [f"{c}_x_type_a" for c in ("coupon_lines_per_week_26w", "coupon_commodities_26w", "coupon_trip_share_26w", "past_redemptions")]
+    for c, n in zip(("coupon_lines_per_week_26w", "coupon_commodities_26w", "coupon_trip_share_26w", "past_redemptions"), inter):
+        tt[n] = tt[c] * tt["is_type_a"]
+    r2 = Runner(tt, open_folds(tt))
+    s = r2.predict(LEAN + inter, "logistic_log")
+    ideas.append({"idea": "lean + Type A interactions", **r2.score(s), "predicted total": s.sum()})
+    parts = []
+    for f in r.folds:
+        recent = (t[t["campaign"].isin(f["train_campaigns"])][["campaign", "end_day"]].drop_duplicates()
+                  .sort_values("end_day")["campaign"].tail(6))
+        tr, te = t[t["campaign"].isin(recent)], t[t["campaign"] == f["test_campaign"]]
+        parts.append(LEARNERS["logistic_log"]().fit(tr[LEAN], tr[LABEL]).predict_proba(te[LEAN])[:, 1])
+    s = np.concatenate(parts)
+    ideas.append({"idea": "lean, trained on the 6 latest finished campaigns only", **r.score(s), "predicted total": s.sum()})
+    ideas = pd.DataFrame(ideas)
+    sections += ["## Forecasts", "", "Baseline forest, actual vs. predicted redemptions per campaign, in time order:", "",
+                 md_table(per.round(1)), ""]
+    if coverage:
+        sections += ["Honest forecast ranges (widened by how much earlier campaigns missed), open + locked campaigns:", "",
+                     md_table(pd.DataFrame(coverage)), ""]
+    sections += [f"Ideas on the open campaigns (actual total {int(r.test[LABEL].sum())}):", "",
+                 md_table(ideas.assign(auc=ideas["auc"].round(4), **{c: ideas[c].map(lambda v: f"{100 * v:.1f}%")
+                                                                    for c in ideas if c.startswith("capture")},
+                                       **{"predicted total": ideas["predicted total"].round(0)})), ""]
+    (out_dir / "open_questions.md").write_text("# Model 1 open questions: evidence\n\n" + "\n".join(sections))
+    print(f"open questions -> {out_dir / 'open_questions.md'}")
+
+
 def main() -> None:
     warnings.filterwarnings("ignore", category=FutureWarning)
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -320,8 +471,13 @@ def main() -> None:
     p.add_argument("--quick", action="store_true", help="skip the one-column-at-a-time retrains")
     p.add_argument("--compare-processed", type=Path, default=None,
                    help="a second processed folder (e.g. 2A rebuilt with --exclude-non-merchandise) to score the same models on")
+    p.add_argument("--open-questions", action="store_true", help="only the evidence for the 10/24 decisions (section E)")
     args = p.parse_args()
-    run(args.processed, args.out or args.processed / "model1_importance", args.quick, args.compare_processed)
+    out = args.out or args.processed / "model1_importance"
+    if args.open_questions:
+        run_open_questions(args.processed, out)
+        return
+    run(args.processed, out, args.quick, args.compare_processed)
 
 
 if __name__ == "__main__":
