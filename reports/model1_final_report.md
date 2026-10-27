@@ -2,12 +2,12 @@
 
 **Question:** will a mailed household redeem at least one of the campaign's coupons?
 **Use:** rank each campaign's mailing list so a marketer can mail the likeliest redeemers first, and add up the probabilities to forecast redemptions for the Decision Lab.
-**Status (10/24):** development wrapped up. The baseline stays the model in use, one ready alternative is documented, and the open questions are decided at the end of this report.
+**Status (10/27):** development wrapped up. The baseline stays the model in use, one ready alternative is documented, and the open questions are decided at the end of this report. For a one-page printout of the answers, run `python src/modeling/model1_importance.py --summary`.
 
 ## Decision
 
 - **The model in use stays the baseline:** a random forest on 11 pre-campaign features (`model1_baseline.py`).
-  - On the 13 open test campaigns it catches **56.3%** of redeemers in each campaign's top 20%.
+  - On the 13 open test campaigns it catches **56.3%** of redeemers in each campaign's top 20%, and **61.3%** averaged over mailing depths 5–50% (the main measure from 10/24, decision 1 below).
   - The "redeemed before" rule catches 47.6%, a gap of +8.7 points (95% range +5.2 to +12.4).
   - Its forecast ranges contain the actual count for 92% of campaigns.
 - **Why we're not switching:** the three finalists beat the baseline on the open campaigns, but on the held-back campaigns their capture gap was −2.7 to −4.0 points, with ranges spanning zero. The rule set before the check was to switch only if a finalist held up there, and none did on the team's main measure.
@@ -29,7 +29,7 @@
   - **Open:** campaigns 8–20 (13 campaigns, 4,974 rows, 707 redeemers), used for every comparison and choice.
   - **Held back:** campaigns 21–25 (5 campaigns, 811 rows, 75 redeemers, all Type B), read only for the final check.
 - **Measures:**
-  - Main: **redeemers caught** in each campaign's top 20% (random mailing = 20%).
+  - Main until 10/24: **redeemers caught** in each campaign's top 20% (random mailing = 20%). From 10/24 the main measure is the same count averaged over mailing depths 5–50% (decision 1 below); the held-back check was judged by the top 20%, as fixed before it.
   - Also: **within-campaign AUC**, how well each campaign's list is ordered. It's smoother, and the Modeling Agent chooses by it.
   - Every gap has a 95% range from resampling whole households.
 
@@ -70,7 +70,23 @@ The evidence:
 
   Most of its gain comes from log scaling plus the 10 already-built columns.
 
-### 4. Other kinds of model (mentor question)
+### 4. What drives the gain beyond coupon use (mentor question, 10/27)
+
+The lean model's 24 columns, split by what they describe (`model1_importance.py --beyond-coupons`, open campaigns, averaged redeemers caught):
+
+| Columns, log-scaled logistic | Averaged capture | Gap (pts) |
+|---|---|---|
+| Coupon use and redemption history only (8) vs. the baseline | 62.7% | +1.4 [+0.3, +2.4] |
+| All 24 vs. coupon columns only | 63.8% | +1.1 [+0.2, +2.0] |
+| Coupon columns + shopping habits (spend, trips, basket, departments) | 63.4% | +0.6 [+0.1, +1.3] |
+| Coupon columns + spend on the campaign's products | 63.2% | +0.5 [−0.4, +1.0] |
+| Coupon columns + campaign context (type, length, history, demographics flag) | 62.7% | +0.0 [−0.6, +0.7] |
+
+- **About half the gain over the baseline comes from using coupon columns better:** more detail on coupon habits plus log scaling.
+- **The other half comes from beyond coupon use, mostly shopping habits.** It's small but real. Spend on the campaign's products helps about as much but isn't certain, and dropping either group from the lean set costs under half a point because they overlap.
+- **Campaign context adds nothing to the ranking.** Its campaign-wide columns (type, length) can't reorder a campaign's list, and its household ones (weeks of history, campaigns received, whether a demographic record exists) add nothing once the coupon columns are in. Demographic labels add nothing either (section 3).
+
+### 5. Other kinds of model (mentor question)
 
 All on the same 39 columns, open campaigns, compared with the baseline:
 
@@ -88,7 +104,7 @@ All on the same 39 columns, open campaigns, compared with the baseline:
 
 Every reasonable model lands at about 0.82–0.83 AUC and 59–60% capture. The limit is the information in the data, not the kind of model. Smooth curves add nothing beyond the log scale, so the simplest model does as well as any.
 
-### 5. Robustness (open campaigns)
+### 6. Robustness (open campaigns)
 
 - **Campaign type:** the gains show up in both.
 
@@ -102,7 +118,7 @@ Every reasonable model lands at about 0.82–0.83 AUC and 59–60% capture. The 
 - **Forecast totals:** predicted redemptions add up to 92–96% of actual (652–678 vs. 707).
 - **Leaving out gas and miscellaneous lines** (Claudia's switch, open question Q7b): it changes spend, trips and basket size for 58–68% of rows, but every model moves by under half a point. Model 1 doesn't depend on that decision.
 
-### 6. The held-back check
+### 7. The held-back check
 
 **Finalists, fixed before the check:**
 - `extended_plus_logistic_log`: log-scaled logistic, 39 columns
@@ -171,7 +187,7 @@ Evidence: `python src/modeling/model1_importance.py --open-questions` (`open_que
 
 - **Weighting recent campaigns more** (half-life 120 days) brings the lean model's open-campaign total from 652 to 701, against 707 actual, without changing its ranking (AUC 0.828 either way). Use it for the Decision Lab's forecasts if the lean model is adopted. It was found on the open campaigns, so check it on new ones first.
 - **Tried, didn't help:** extra Type A interaction terms (AUC 0.824 vs. 0.828), and training only on the 6 latest campaigns (AUC 0.823).
-- **Already shown not to help:** other kinds of model (section 4) and separate models by campaign type.
+- **Already shown not to help:** other kinds of model (section 5) and separate models by campaign type.
 - **What would actually move Model 1 further is new data:** which of a Type A campaign's roughly 200 coupons a household sees, and each coupon's value. Neither is in the dataset.
 
 ### Still for the team
@@ -188,6 +204,8 @@ python src/modeling/model1_evaluation.py         # baseline validation (PR #11)
 python src/modeling/model1_feature_search.py     # feature-group search (PR #29)
 python src/modeling/model1_importance.py         # which columns matter, other models, robustness (this report)
 python src/modeling/model1_importance.py --open-questions   # evidence for the decisions on the open questions
+python src/modeling/model1_importance.py --beyond-coupons   # what drives the gain beyond coupon use (section 4)
+python src/modeling/model1_importance.py --summary          # the answers in one printout, from the saved outputs
 python src/modeling/agent.py --model 1 --mode forward
 python src/evaluation/agent.py --model 1         # open campaigns
 python src/evaluation/agent.py --model 1 --unlock   # held-back check (already done once; a repeat is flagged)

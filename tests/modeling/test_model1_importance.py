@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from modeling.model1_feature_search import ADOPTED, EXTENDED  # noqa: E402
-from modeling.model1_importance import LEAN, LEAN_ADDED, Runner, permutation_importance  # noqa: E402
+from modeling.model1_importance import BEYOND_GROUPS, LEAN, LEAN_ADDED, Runner, permutation_importance, summary  # noqa: E402
 
 
 def test_lean_set_matches_the_modeling_spec_and_uses_only_new_coupon_columns():
@@ -46,3 +46,14 @@ def test_runner_trains_only_on_the_fold_training_campaigns():
     r = Runner(t, [{"test_campaign": 3, "train_campaigns": [1, 2]}])
     # trained on campaigns 1-2 (signal -> redeem), so on the flipped campaign 3 it ranks exactly backwards
     assert r.score(r.predict(["signal"], "logistic_log"))["auc"] < 0.1
+
+
+def test_beyond_coupon_groups_split_the_lean_set_exactly_once():
+    cols = [c for g in BEYOND_GROUPS.values() for c in g]
+    assert sorted(cols) == sorted(LEAN) and len(cols) == len(set(cols))
+    assert set(LEAN_ADDED) <= set(BEYOND_GROUPS["coupon use and redemption history"])
+
+
+def test_summary_says_what_to_run_when_outputs_are_missing(tmp_path):
+    text = summary(tmp_path, tmp_path / "model1_importance")
+    assert "Run first" in text and "--beyond-coupons" in text and "evaluation/agent.py --model 1" in text

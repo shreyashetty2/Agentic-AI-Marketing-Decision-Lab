@@ -27,6 +27,12 @@ Each test campaign is predicted by a model trained only on campaigns that ended 
      - forecasts: actual vs. predicted redemptions per campaign over time, honest-range coverage, and two ideas
        (weighting recent campaigns more; Type A interactions; training on recent campaigns only)
      This is the only part that reads the locked campaigns (frozen predictions only), and it never trains on them.
+  F. --beyond-coupons (about 2 minutes): what drives the gain beyond coupon use. The lean set's 24 columns split
+     into coupon use and redemption history vs. three other groups (shopping habits, spend on the campaign's
+     products, campaign context); each group is added to the coupon columns alone and dropped from the lean set.
+  G. --summary (seconds, trains nothing): Model 1's answers in one printout, read from the saved outputs of the
+     Evaluation Agent, section E and section F: current best result, what drives it beyond coupon use, the
+     held-back check, and the comparison behind the decision.
 
 Gaps are in AUC points (within-campaign ranking) and capture points (redeemers caught in each campaign's top 20%),
 with 95% intervals from resampling whole households (model1_feature_search.paired_gap).
@@ -35,10 +41,13 @@ Run from the repo folder (about 20 minutes; --quick skips the one-column-at-a-ti
     python src/modeling/model1_importance.py
     python src/modeling/model1_importance.py --compare-processed data/processed_nonmerch
     python src/modeling/model1_importance.py --open-questions
+    python src/modeling/model1_importance.py --beyond-coupons
+    python src/modeling/model1_importance.py --summary
 
 Output: data/processed/model1_importance/ report.md and one CSV per table
 """
 import argparse
+import json
 import sys
 import time
 import warnings
@@ -47,6 +56,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import sklearn
+import yaml
 from lightgbm import LGBMClassifier
 from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -68,6 +78,17 @@ NEW = [c for cols in ADOPTED.values() for c in cols]
 # EXTENDED + these = the `lean` feature set in modeling_spec.yaml.
 LEAN_ADDED = ["coupon_commodities_26w", "coupon_trip_share_26w", "coupon_lines_per_week_all"]
 LEAN = EXTENDED + LEAN_ADDED
+# Section F: the lean set's columns by what they describe. Coupon use and redemption history first, then the rest.
+BEYOND_GROUPS = {
+    "coupon use and redemption history": ["coupon_lines_per_week_26w", "share_spend_on_discount_26w", "past_redemption_rate",
+                                          "past_redemptions", "past_campaigns_redeemed", "coupon_commodities_26w",
+                                          "coupon_trip_share_26w", "coupon_lines_per_week_all"],
+    "shopping habits": ["spend_per_week_26w", "trips_per_week_26w", "spend_per_week_8w", "trips_per_week_8w",
+                        "days_since_last_trip", "avg_basket_value_26w", "n_departments_26w"],
+    "spend on the campaign's products": ["campaign_product_spend_per_week_26w", "campaign_product_share_26w"],
+    "campaign context": ["history_weeks_before_cutoff", "duration_days", "is_type_a", "is_type_b",
+                         "past_campaigns_received", "other_campaigns_live_at_cutoff", "has_demographics"],
+}
 FOREST = dict(n_estimators=300, max_depth=6, min_samples_leaf=20, random_state=42, n_jobs=2)   # the baseline's settings
 DEPTHS = (0.1, 0.2, 0.3, 0.5)
 
@@ -463,6 +484,88 @@ def run_open_questions(processed: Path, out_dir: Path) -> None:
     print(f"open questions -> {out_dir / 'open_questions.md'}")
 
 
+def run_beyond_coupons(processed: Path, out_dir: Path) -> None:
+    """Section F: what the lean set's non-coupon columns add, on the open campaigns (log-scaled logistic)."""
+    t = load_table(processed)
+    t[EXTENDED_PLUS] = t[EXTENDED_PLUS].fillna(0)
+    r = Runner(t, open_folds(t))
+    coupon_name, *others = BEYOND_GROUPS
+    coupon = BEYOND_GROUPS[coupon_name]
+    base, lean, only = r.predict(BASELINE, "forest"), r.predict(LEAN, "logistic_log"), r.predict(coupon, "logistic_log")
+    plan = [("coupon columns only vs. baseline forest", "coupon columns only", only, base),
+            ("all 24 (lean) vs. coupon columns only", "everything beyond coupon use", lean, only)]
+    for g in others:
+        plan += [(f"coupon columns + {g} vs. coupon columns only", f"{g}, added", r.predict(coupon + BEYOND_GROUPS[g], "logistic_log"), only),
+                 (f"lean minus {g} vs. lean", f"{g}, dropped", r.predict([c for c in LEAN if c not in BEYOND_GROUPS[g]], "logistic_log"), lean)]
+    rows = []
+    for comparison, short, a, b in plan:
+        gaps = {g["measure"]: g for g in measure_gaps(r.test, a, b, reps=200)}
+        rows.append({"comparison": comparison, "short": short,
+                     "capture_avg": within_campaign_capture_avg(r.test["campaign"], r.test[LABEL], a),
+                     **{f"{k}_{m}": gaps[name][k] for name, m in (("capture, averaged over 5-50%", "avg"),
+                                                                  ("within-campaign AUC", "auc"))
+                        for k in ("gap", "low", "high")}})
+    res = pd.DataFrame(rows)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    res.to_csv(out_dir / "beyond_coupons.csv", index=False)
+    pts = lambda g, lo, hi: f"{100 * g:+.1f} [{100 * lo:+.1f}, {100 * hi:+.1f}]"
+    table = pd.DataFrame({"comparison": res["comparison"], "averaged capture": res["capture_avg"].map(lambda v: f"{100 * v:.1f}%"),
+                          "gap, averaged capture (pts)": [pts(*x) for x in res[["gap_avg", "low_avg", "high_avg"]].to_numpy()],
+                          "gap, AUC (pts)": [pts(*x) for x in res[["gap_auc", "low_auc", "high_auc"]].to_numpy()]})
+    groups = "\n".join(f"- **{g}:** {', '.join(f'`{c}`' for c in cols)}" for g, cols in BEYOND_GROUPS.items())
+    (out_dir / "beyond_coupons.md").write_text(
+        "# Model 1: what drives the gain beyond coupon use\n\nLog-scaled logistic regression, open campaigns 8-20. "
+        "Gaps are the first minus the second, with 95% ranges from resampling whole households.\n\n"
+        f"{groups}\n\n{md_table(table)}\n")
+    print(md_table(table))
+    print(f"beyond coupon use -> {out_dir / 'beyond_coupons.md'}")
+
+
+def summary(processed: Path, out_dir: Path) -> str:
+    """Section G: Model 1's answers in one printout, from saved outputs only (nothing is trained)."""
+    ev, lines = processed / "evaluation_agent/model1/verdict.json", ["MODEL 1: CAMPAIGN RESPONSE PROBABILITY", ""]
+    missing = [(p, cmd) for p, cmd in ((ev, "python src/evaluation/agent.py --model 1"),
+                                       (out_dir / "beyond_coupons.csv", "python src/modeling/model1_importance.py --beyond-coupons"),
+                                       (out_dir / "measures.csv", "python src/modeling/model1_importance.py --open-questions"))
+               if not p.exists()]
+    if missing:
+        return "\n".join(["Some saved outputs are missing. Run first:"] + [f"  {cmd}" for _, cmd in missing])
+    v = json.loads(ev.read_text())
+    s, pct = v["scores"], lambda x: f"{100 * x:.1f}%"
+    pts = lambda g: f"{100 * g['gap']:+.1f} points (95% range {100 * g['low']:+.1f} to {100 * g['high']:+.1f})"
+    lean = v["alternatives"]["lean_logistic_log"]
+    lines += ["1. Current best result (open test campaigns 8-20, redeemers caught averaged over mailing the top 5-50%)",
+              f"   baseline forest, in use          {pct(s['owner_forest'])}",
+              f"   lean log-scaled logistic         {pct(s['lean_logistic_log'])}   {pts(lean)} vs. baseline",
+              f"   \"redeemed before\" rule           {pct(s['baseline_score'])}",
+              f"   random mailing                   {pct(s['random'])}", ""]
+    b = pd.read_csv(out_dir / "beyond_coupons.csv").set_index("short")
+    row = lambda k: pts({"gap": b.loc[k, "gap_avg"], "low": b.loc[k, "low_avg"], "high": b.loc[k, "high_avg"]})
+    others = [g for g in BEYOND_GROUPS if g != "coupon use and redemption history"]
+    lines += ["2. What drives the gain beyond coupon use (lean log-scaled logistic)",
+              f"   {'coupon columns alone vs. baseline':42s} {row('coupon columns only')}",
+              f"   {'everything else, on top of them':42s} {row('everything beyond coupon use')}"]
+    lines += [f"     {g + ', added':40s} {row(g + ', added')}" for g in others]
+    lines += ["   most of the gain is using the coupon columns better (more detail, log scaling); shopping habits add",
+              "   a small real part; campaign context and demographic labels add nothing", ""]
+    m = pd.read_csv(out_dir / "measures.csv")
+    lk = m[(m["campaigns"] == "locked (21-25)") & (m["finalist"] == "lean_logistic_log")].set_index("measure")
+    lines += ["3. Held-back campaigns 21-25 (811 rows, 75 redeemers, read once), lean vs. baseline"]
+    lines += [f"   {k:30s} {pts(lk.loc[k])}" for k in lk.index]
+    lines += ["   ordering mostly held up (its range sits at zero); redeemers caught can't be told apart (one redeemer is about 1.3 points at the top 20%)", ""]
+    c = pd.read_csv(out_dir / "comparisons.csv") if (out_dir / "comparisons.csv").exists() else None
+    lines += ["4. Comparison behind the decision"]
+    if c is not None:
+        mt = c[c["kind"] == "B model type vs. baseline"]
+        lines += [f"   {len(mt)} model variants on the same 39 columns: AUC {mt['auc'].min():.3f} to {mt['auc'].max():.3f}"
+                  " (the data, not the model type, is the limit)"]
+    in_use = yaml.safe_load((ROOT / "src/lead/models_in_use.yaml").read_text()) or {}
+    lines += ["   rule fixed before the held-back check: switch only if a finalist holds up there",
+              f"   model in use: {in_use[1]['id'] if 1 in in_use else 'the baseline forest (owner script)'}",
+              "   ready alternative: lean_logistic_log, switched in once its averaged gain holds on campaigns finishing after 10/24"]
+    return "\n".join(lines)
+
+
 def main() -> None:
     warnings.filterwarnings("ignore", category=FutureWarning)
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -472,8 +575,16 @@ def main() -> None:
     p.add_argument("--compare-processed", type=Path, default=None,
                    help="a second processed folder (e.g. 2A rebuilt with --exclude-non-merchandise) to score the same models on")
     p.add_argument("--open-questions", action="store_true", help="only the evidence for the 10/24 decisions (section E)")
+    p.add_argument("--beyond-coupons", action="store_true", help="what drives the gain beyond coupon use (section F)")
+    p.add_argument("--summary", action="store_true", help="print Model 1's answers from saved outputs (section G)")
     args = p.parse_args()
     out = args.out or args.processed / "model1_importance"
+    if args.summary:
+        print(summary(args.processed, out))
+        return
+    if args.beyond_coupons:
+        run_beyond_coupons(args.processed, out)
+        return
     if args.open_questions:
         run_open_questions(args.processed, out)
         return
