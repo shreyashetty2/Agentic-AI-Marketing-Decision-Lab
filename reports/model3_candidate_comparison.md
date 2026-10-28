@@ -1,5 +1,35 @@
 # Model 3: full candidate comparison
 
+## Update (10/28): the confounder feature is now household/store-specific
+
+`campaign_promo_share` originally checked "was this product promoted at *any* store" -- coarse: 21
+of 25 campaigns scored a flat 1.0, almost no variation for a model to learn from. It now checks
+promotion at the *household's own usual store* (the store they shopped at most before the campaign
+started). Real effect on the data: from 25 distinct values (one per campaign, std 0.093) to 1,240
+distinct values (one per household x campaign, std 0.289) -- a genuinely richer signal, not a
+cosmetic change.
+
+**What this changes in the conclusions, checked directly, not assumed:**
+- `owner_x_learner_confound_aware`'s own score improved from +0.0077 (no better than plain
+  X-learner) to **+0.0111**, now the single best own-score of anything tried.
+- Its gap vs. the X-learner currently in use: **+0.0034** (range -0.0013 to +0.0069) on open
+  campaigns -- still inconclusive (barely), a small real improvement, not a decisive one.
+- The plain T-learner (the original model, before any of this effort) is now confirmed **worse**
+  than the X-learner in use with a clean "fail" (range -0.0345 to -0.0057, entirely negative) --
+  previously only "a real difference," now a stronger, fully negative confirmation.
+- **Not re-checked against the locked campaigns.** That check has already been read 3 times this
+  effort; a 4th look would tell us close to nothing new and would further erode its value for
+  whatever comes after. Recommending this stay a tracked, promising candidate -- not promoted to
+  the model in use -- until a genuinely fresh check is available.
+- The Evaluation Agent's verdict changed kind, not just value: it's now `human_needed` ("no rule
+  covers this combination: gap inconclusive, calibration ok"), rather than a rule-decided
+  recommendation -- a live example of the system correctly escalating instead of guessing.
+
+Everything below this point is the original comparison (through 10/21), kept as the historical
+record of how the team got to the X-learner decision.
+
+---
+
 Every approach tried, judged by the same Modeling + Evaluation Agent machinery, on the same metric
 (`ipw_stratified_qini`: extra buyers per mailed household vs. random targeting, within campaign,
 propensity-weighted). "Open" = the 15 regular test campaigns, reused across iteration. "Locked" =
