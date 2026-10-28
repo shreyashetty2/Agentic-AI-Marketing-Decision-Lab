@@ -101,16 +101,24 @@ slice.
 
 `campaign_promo_share` (Feature Agent 2A, `src/features/outcomes.py`) is the alternative tried
 here: share of a campaign's own weeks where at least one eligible product was on display or in the
-flyer, at any store. It depends only on the campaign's product list (coupon.csv) and the promo
-calendar, never on any household's purchases, so it's known before mailing and safe as a model
-input -- registered under a new `context` role (`src/features/feature_2a_spec.yaml`,
-`src/features/spec.py`), since it's computed by 2A but, unlike the existing `outcome` columns, is
-not household-specific or after-the-fact.
+flyer, **at the household's own usual store** (the store they shopped at most before this campaign
+started -- updated 10/28; originally checked any store, see below). It depends only on the
+campaign's product list (coupon.csv), the promo calendar, and days before `start_day`, never on
+this campaign's own outcome, so it's known before mailing and safe as a model input -- registered
+under a new `context` role (`src/features/feature_2a_spec.yaml`, `src/features/spec.py`), since
+it's computed by 2A but, unlike the existing `outcome` columns, is not after-the-fact.
 
-Tested as `confound_aware_t_forest` (owner features + this one column) against the owner's model via
-the Modeling + Evaluation Agents: +0.0039 ipw_stratified_qini, 95% range -0.0031 to +0.0101 --
-inconclusive, a small nudge in the right direction but not yet a proven gain. Kept as a registered
-candidate rather than adopted, so it's tracked and re-checked as more campaigns finish.
+**Original version (any store, not household-specific):** nearly no variation -- 21 of 25
+campaigns scored a flat 1.0 -- because most campaigns cover enough products across enough stores
+that at least one is almost always promoted somewhere. Tested as `confound_aware_t_forest`: +0.0039
+ipw_stratified_qini, inconclusive.
+
+**Household/store-specific version:** 1,240 distinct values instead of 25, std 0.289 vs. 0.093 --
+real, meaningful variation now. Tested on `owner_x_learner_confound_aware`: own score improved from
++0.0077 to +0.0111, the best own-score of anything tried; gap vs. the X-learner in use is +0.0034
+(range -0.0013 to +0.0069), still inconclusive but a real nudge, not a null result. Not re-checked
+against the locked campaigns (already read 3 times this effort; a 4th look would be close to
+uninformative) -- kept as a tracked, promising candidate, not promoted to the model in use.
 
 ## The "sure things" classifier (`model3_product_lookup.py`'s sibling: `model3_sure_things.py`)
 
