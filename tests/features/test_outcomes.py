@@ -48,6 +48,22 @@ def test_conflicting_duplicates_count_as_promoted(causal):
     assert len(p) == 2
 
 
+def test_campaign_promo_share_uses_the_households_own_usual_store(tables, causal):
+    out = compute_outcomes(tables, causal)
+    # Household 1's only pre-c1-cutoff (day < 100) transactions are all at store 1 (days 10, 60,
+    # 60, 92) -> usual store = 1. c1 (days 100-130) spans weeks 15-19 (5 weeks); of those, only
+    # week 16 has an eligible product (101) promoted at store 1 (the `causal` fixture's on_display
+    # row). So 1 promoted week out of 5.
+    assert _get(out, 1, 1).campaign_promo_share == pytest.approx(0.2)
+    # Household 3's only transaction (day 150) is AFTER c1's start_day (100), so they have no
+    # pre-cutoff history for c1 at all -- no usual store can be determined, so it's blank, not 0
+    # (0 would wrongly claim "never promoted" instead of "unknown").
+    assert pd.isna(_get(out, 3, 1).campaign_promo_share)
+    # That same household DOES have pre-cutoff history for c3 (day 150 < c3's start_day 200, at
+    # store 1), so c3 is NOT blank for them.
+    assert pd.notna(_get(out, 3, 3).campaign_promo_share)
+
+
 def test_mailed_overlapping_campaign(tables, causal):
     out = compute_outcomes(tables, causal)
     assert _get(out, 1, 1).mailed_overlapping_campaign == 1   # mailed c2, which overlaps c1
