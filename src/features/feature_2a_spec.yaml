@@ -166,10 +166,13 @@ context:   # known before mailing, computed by 2A (not a spine passthrough); saf
   campaign_promo_share:
     desc: >
       Share of this campaign's own weeks where at least one eligible product was on display or in
-      the flyer, at any store. Depends only on the campaign's product list (coupon.csv) and the
-      promo calendar, never on any household's purchases, so it's known in advance and safe as an
-      input -- unlike the household-level outcome, which only exists after the campaign runs.
-    blank_when: [type_a]
+      the flyer, at the household's own usual store (the store they shopped at most before this
+      campaign started). Depends only on the campaign's product list (coupon.csv), the promo
+      calendar, and which days came before start_day -- never on this campaign's own outcome, so
+      it's known in advance and safe as an input. Household-specific, not a campaign-wide average:
+      two households mailed the same campaign can get different values if they shop at different
+      stores.
+    blank_when: [type_a, no_history]
 
 outcome:   # measured from start_day to end_day inclusive
   campaign_product_spend_during:
