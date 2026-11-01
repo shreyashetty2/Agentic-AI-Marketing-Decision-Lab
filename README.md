@@ -392,27 +392,12 @@ Each `model{n}_baseline.py` trains on the earliest 70% of campaigns (by `start_d
 
 ### Progress so far
 
-**Week of 10/6 — Data and feature foundations**
-- Data Agent: household x campaign spine, ingestion, validation (Claudia).
-- Feature Agent 2A: shared feature table feeding all three models (Pranav).
-- Feature Agent 2B: per-model filtered tables, leakage rail (Shreya).
-- Model 1 and Model 2 baselines (Yuxin).
-
-**Week of 10/12 — First real models**
-- Model 3: redemption-segmentation outcome, full T-learner uplift model on the complete 43,396-row dataset, demographic and product-level analysis (Shreya).
-- Model 1 evaluation: baseline validated against a simple rule (John).
-- Data Agent: outlier rules, typo detection, quality report; moved into `src/preprocessing` (Claudia).
-- Model 2: value model (Yuxin).
-- Modeling Agent and Evaluation Agent: shared orchestration layer for all three models, calling each owner's code unchanged (Pranav).
-
-**Week of 10/17 — Evaluation discipline and causal inference**
-- Model 3 results published to the repo; propensity-weighted Qini accepted as the official evaluation metric.
-- Lead Agent: one front door that runs the Data, Feature, Modeling and Evaluation Agents in order and explains the result in plain language (Pranav).
-- Model 3: confounder handled as a model feature instead of a filter; a standalone classifier flagging likely-wasted mail sends; 5 causal-inference approaches compared head to head (weighted T-learner, X-learner, doubly-robust/AIPW learner, entropy balancing); an E-value sensitivity check added. X-learner adopted as Model 3's model in use after 2 other candidates that looked like wins failed a genuinely held-out check (Shreya).
-
-**Week of 10/22 — Model 1 and Model 2 on the shared agents, more Data Agent fixes**
-- Model 1: feature-group candidates, 18 new feature columns, automated feature search (John).
-- Model 2: totals candidates tested through the shared agents (Yuxin).
-- Data Agent: switch to exclude gas-kiosk and miscellaneous transaction lines from spend features; a default for probable missing-quantity rows (Claudia).
+| Week of | Goals achieved |
+|---|---|
+| 10/6 | Data Agent: household x campaign spine, ingestion, validation (Claudia). Feature Agent 2A: shared feature table feeding all three models (Pranav). Feature Agent 2B: per-model filtered tables, leakage rail (Shreya). Model 1 and Model 2 baselines (Yuxin). |
+| 10/12 | Model 3: redemption-segmentation outcome, full T-learner uplift model on the complete 43,396-row dataset, demographic and product-level analysis (Shreya). Model 1 evaluation: baseline validated against a simple rule (John). Data Agent: outlier rules, typo detection, quality report; moved into `src/preprocessing` (Claudia). Model 2: value model (Yuxin). Modeling Agent and Evaluation Agent: shared orchestration layer for all three models, calling each owner's code unchanged (Pranav). |
+| 10/17 | Model 3 results published; propensity-weighted Qini accepted as the official evaluation metric. Lead Agent: one front door that runs the Data, Feature, Modeling and Evaluation Agents in order and explains the result in plain language (Pranav). Model 3: confounder handled as a model feature instead of a filter; a standalone classifier flagging likely-wasted mail sends; 5 causal-inference approaches compared head to head; an E-value sensitivity check added; X-learner adopted as the model in use after 2 other candidates that looked like wins failed a genuinely held-out check (Shreya). |
+| 10/22 | Model 1: feature-group candidates, 18 new feature columns, automated feature search (John). Model 2: totals candidates tested through the shared agents (Yuxin). Data Agent: switch to exclude gas-kiosk and miscellaneous transaction lines from spend features; a default for probable missing-quantity rows (Claudia). |
+| 10/28 | Model 3: the confounder feature made household/store-specific instead of campaign-wide (1,240 distinct values instead of 25); the confound-aware X-learner became the best-scoring candidate tried so far, still not adopted since it hasn't cleared the held-out check. First GCP deployment prepared for the Lead Agent (Dockerfile, entrypoint, full deployment plan), built and verified locally (Shreya). |
 
 Full candidate comparisons and the reasoning behind each model's current choice are published under [`reports/`](reports/).
