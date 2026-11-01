@@ -21,7 +21,10 @@ defaults:
   never_inputs: [household_key, campaign, start_day, end_day, chrono_rank, first_txn_day,
                  history_days_before_start, n_overlapping_campaigns]
   # A blank may become 0 only if every reason 2A gives for that column's blanks means "none".
-  fill_zero_when: [no_history, no_spend_26w, never_received]
+  # type_a is safe here: the only profile/context column that lists it is campaign_promo_share, and
+  # Model 2B's own row filter already drops every TypeA row before any model sees this table, so a
+  # type_a-caused blank can never actually appear in a row a model is trained or scored on.
+  fill_zero_when: [no_history, no_spend_26w, never_received, type_a]
   # Columns the owners' own load_table adds (not in 2A): allowed as inputs.
   derived_inputs: [is_type_a, is_type_b, usual_spend]
   inner_last_n_campaigns: 4    # choosing uses only the last 4 campaigns inside each training window
