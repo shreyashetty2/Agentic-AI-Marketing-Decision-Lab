@@ -5,7 +5,7 @@ from pathlib import Path
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from lib.chat import api_key, ask  # noqa: E402
+from lib.chat import ask, credentials_ok  # noqa: E402
 from lib.style import inject  # noqa: E402
 
 st.set_page_config(page_title="Ask the Decision Lab", layout="wide")
@@ -18,11 +18,11 @@ st.caption(
     "at anything it wasn't given."
 )
 
-if not api_key():
+if not credentials_ok():
     st.warning(
-        "No ANTHROPIC_API_KEY found. Add one to a local `.env` file at the repo root "
-        "(`ANTHROPIC_API_KEY=sk-...`, already gitignored -- same key used for "
-        "`src/modeling/brain.py`) and reload this page."
+        "No Google Cloud credentials found. Run `gcloud auth application-default login` once "
+        "(same login used to deploy this project to Cloud Run) and reload this page. Answers run "
+        "on Vertex AI (Gemini), billed to this project's own GCP credits."
     )
     st.stop()
 
