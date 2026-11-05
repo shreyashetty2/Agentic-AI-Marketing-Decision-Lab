@@ -22,8 +22,10 @@ pyyaml
 # Tests
 pytest
 
-# --- To add once the team decides (API / UI / LLM) ---
+# Decision Lab interface
+streamlit
+
+# --- To add once the team decides (API / LLM) ---
 # fastapi
 # uvicorn
-# streamlit
 anthropic          # the brain (src/modeling/brain.py); its key stays in the local .env
