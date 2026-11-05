@@ -1,0 +1,12 @@
+# Decision Lab theme. Hex values are the validated palette from the project's dataviz skill
+# (references/palette.md): categorical slot 1 (blue) as the accent, the light chart surfaces as
+# backgrounds, primary/secondary ink for text. Not eyeballed -- these are the pre-validated steps.
+[theme]
+primaryColor = "#2a78d6"
+backgroundColor = "#fcfcfb"
+secondaryBackgroundColor = "#f3f2ee"
+textColor = "#0b0b0b"
+font = "sans serif"
+
+[server]
+headless = true
