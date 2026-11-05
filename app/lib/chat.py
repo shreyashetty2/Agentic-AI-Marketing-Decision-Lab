@@ -1,4 +1,4 @@
-"""Ask the Decision Lab: a stakeholder-facing Q&A over Model 1 and Model 3, grounded only in numbers
+"""Ask the Decision Lab: a stakeholder-facing Q&A over all three models, grounded only in numbers
 this repo already computed. Same rule the lead-agent skill follows for a data scientist, applied here
 for a marketer: the model paraphrases and reasons about given facts, it never computes a new one.
 
@@ -16,10 +16,11 @@ GCP_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "capstone-decision-lab")
 GCP_LOCATION = os.environ.get("GOOGLE_CLOUD_LOCATION", "global")
 CHAT_MODEL = "gemini-3.8-flash"
 
-SYSTEM_PROMPT = """You are the Decision Lab, answering a marketing stakeholder's questions about two models \
-built on grocery-chain loyalty data: Model 1 (who is likely to redeem a mailed coupon) and Model 3 \
-(who mailing actually persuades to buy more -- "uplift" -- plus a separate tool that flags likely-wasted \
-sends among households already mailed, called "sure things").
+SYSTEM_PROMPT = """You are the Decision Lab, answering a marketing stakeholder's questions about three models \
+built on grocery-chain loyalty data: Model 1 (who is likely to redeem a mailed coupon), Model 2 (how much a \
+mailed household is forecast to spend on the campaign's products), and Model 3 (who mailing actually persuades \
+to buy more -- "uplift" -- plus a separate tool that flags likely-wasted sends among households already \
+mailed, called "sure things").
 
 Rules, no exceptions:
 - Answer ONLY from the facts given to you below. Never compute, estimate, or guess a number that is not \
@@ -32,8 +33,6 @@ score, meaning how many extra buyers this household contributes if mailed, versu
 luck" or the verdict is "human needed", say that plainly rather than rounding it up to a confident claim.
 - Short, direct answers. A sentence or two for a simple question; a short list only when the question asks \
 for several things (e.g. "which segments").
-- Model 2 (spend forecasting) is not in your scope -- if asked, say so and point to the Decision Lab's \
-Overview page instead of guessing at its numbers.
 """
 
 
@@ -69,7 +68,7 @@ def _model_facts(summary: dict, model: int) -> str:
     return "\n".join(lines)
 
 
-def _population_facts(model: int, score_label: str) -> str:
+def _population_facts(model: int, score_label: str, fmt: str = "{:.4f}") -> str:
     preds = with_demographics(load_predictions(model))
     lines = [f"Population breakdown for Model {model} ({score_label}), households with a demographic record on file:"]
     for col in ("classification_1", "classification_4", "homeowner_desc", "kid_category_desc"):
@@ -79,10 +78,10 @@ def _population_facts(model: int, score_label: str) -> str:
         if known.empty:
             continue
         means = known.groupby(col)["score"].mean().sort_values(ascending=False)
-        lines.append(f"- by {col}: " + ", ".join(f"{k} = {v:.4f}" for k, v in means.items()))
+        lines.append(f"- by {col}: " + ", ".join(f"{k} = {fmt.format(v)}" for k, v in means.items()))
     top = preds.nlargest(10, "score")[["household_key", "campaign", "score"]]
     lines.append("Top 10 households by score: " + "; ".join(
-        f"household {r.household_key} (campaign {r.campaign}): {r.score:.4f}" for r in top.itertuples()))
+        f"household {r.household_key} (campaign {r.campaign}): {fmt.format(r.score)}" for r in top.itertuples()))
     return "\n".join(lines)
 
 
@@ -92,6 +91,9 @@ def build_context() -> str:
     parts = [
         _model_facts(summary, 1),
         _population_facts(1, "redemption-likelihood score"),
+        "",
+        _model_facts(summary, 2),
+        _population_facts(2, "forecast spend", fmt="${:.2f}"),
         "",
         _model_facts(summary, 3),
         _population_facts(3, "uplift score"),
