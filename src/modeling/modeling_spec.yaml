@@ -202,7 +202,8 @@ models:
                                      has_demographics, classification_1_code, classification_3_code, classification_4_code,
                                      classification_5_code, kid_count_code, classification_2_x, classification_2_y,
                                      classification_2_z, homeowner_flag, renter_flag]
-    candidates:   # owner_calibrated is Yuxin's current model (model2_value.py); the rest are her earlier ones and variations
+    candidates:   # owner_usual_linear is Yuxin's current model (model2_value.py, final 11/5); the rest are her earlier ones and variations
+      owner_usual_linear: {source: owner, owner_learner: usual_linear, family: linear, params: {}, complexity: 1}
       owner_calibrated:   {source: owner, owner_learner: calibrated, family: median_linear,
                            params: {quantile: 0.5, alpha: 0, solver: highs}, complexity: 1}
       owner_forest:       {source: owner, owner_learner: forest, family: forest, params: *forest, complexity: 2}
@@ -223,7 +224,7 @@ models:
       usual_demographics_linear:     {source: agent, family: linear, features: usual_plus_demographics, params: {}, complexity: 1}
       usual_promo_linear:            {source: agent, family: linear, features: usual_plus_promo, params: {}, complexity: 1}
       usual_model1_new_groups_linear: {source: agent, family: linear, features: usual_plus_model1_new_groups, params: {}, complexity: 1}
-    default: owner_calibrated
+    default: owner_usual_linear
     forward_chain: {min_train_rows: 80}
     locked_test_campaigns: 3
     selection:

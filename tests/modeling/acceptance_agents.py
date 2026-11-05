@@ -46,8 +46,8 @@ def owner_scores(model_id: int, processed: Path, train_campaigns: list, test_cam
     if model_id == 3:
         model_t, model_c, _, _ = module.train_t_learner(train)
         return model_t.predict_proba(test[module.FEATURES])[:, 1] - model_c.predict_proba(test[module.FEATURES])[:, 1]
-    if model_id == 2:                      # Yuxin's current model: calibrated usual spend
-        return module.CalibratedUsualSpend().fit(train).predict(test)
+    if model_id == 2:                      # Yuxin's current model: least-squares line on usual spend
+        return module.LinearUsualSpend().fit(train).predict(test)
     return module.train_models(train)["Random forest"].predict_proba(test[module.FEATURES])[:, 1]
 
 

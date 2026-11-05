@@ -7,7 +7,11 @@ stays in the repo as the comparison it was built to be). For a household that re
 campaign, it predicts the household's spend on that campaign's products during the campaign window
 (`campaign_product_spend_during`, Feature Agent 2A/2B).
 
-The chosen model is deliberately small -- a one-feature median regression on "usual spend":
+> **Final (11/5):** the model in use is now a least-squares line on usual spend,
+> **spend = 0.70 x usual spend + $9.68**, because it gets totals right. See "Update (Nov 5)" below and
+> `reports/model2_final_report.md`. The sections up to "Update (Oct 23)" describe the 10/15 median line.
+
+The model chosen on 10/15 was deliberately small -- a one-feature median regression on "usual spend":
 
 **spend = 0.79 x usual spend + $6.13** (fit on all 254 rows)
 
@@ -158,6 +162,18 @@ positive by only $0.07; redemption history (-$0.78), demographics (-$1.38) and t
 Model 1 together (-$2.32, 21 columns) are reliably worse. Columns that help Model 1 on 7,208 rows overfit
 Model 2's 254.
 On the agent's 113 open test rows, differences under about $1 can't be told apart.
+
+## Update (Nov 5): final model
+
+- **Model in use:** a least-squares line on usual spend, `LinearUsualSpend` (`owner_usual_linear`, the spec default). Fit on all 254 rows: spend = $9.68 + 0.70 × usual spend.
+- **Why it replaced the median line:** the median line has about the same error but under-predicts totals (0.78–0.80), because spend is right-skewed. The least-squares line adds up to 0.92–0.95, which passes the Evaluation Agent's ±15% check. That matters because the Decision Lab sums predictions.
+- **Agent verdict:** "human needed": the totals check passes, and the gap against usual spend is +$0.50 but inconclusive. The decision is to keep the line, as agreed with the mentors on 10/23. The Model 2 override in `models_in_use.yaml` was removed.
+- **Household-specific promo share:** reliably worse (−$0.47, range −$0.92 to −$0.09). In Model 2's rows it has 13 distinct values, and 84% are 1.0.
+- **Held-back check (campaigns 23–25, 54 rows, run once):**
+  - the line beats usual spend by +$1.24 (range −$0.59 to +$2.98);
+  - no alternative is reliably better;
+  - totals reach 0.76, because those later campaigns spend more.
+- **Full write-up:** `reports/model2_final_report.md`.
 
 ## How to run it
 

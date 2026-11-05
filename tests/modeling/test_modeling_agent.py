@@ -220,6 +220,17 @@ def test_model2_current_model_is_yuxins_calibrated_usual_spend_unchanged():
     assert np.array_equal(fitted.predict(t)["score"], theirs)
 
 
+def test_model2_current_model_is_yuxins_line_on_usual_spend_unchanged():
+    from modeling import model2_value
+    rng = np.random.default_rng(4)
+    t = pd.DataFrame({"usual_spend": rng.gamma(2, 5, 300)})
+    t[model2_value.LABEL] = 0.7 * t["usual_spend"] + 9 + rng.normal(0, 3, 300)
+    fitted = fit_owner(2, "usual_linear", t, "owner_usual_linear")
+    assert fitted.features == ["usual_spend"]
+    theirs = model2_value.LinearUsualSpend().fit(t).predict(t)
+    assert np.array_equal(fitted.predict(t)["score"], theirs)
+
+
 def test_a_new_model_script_in_the_repo_is_flagged_for_a_person(monkeypatch):
     from modeling import agent as agent_mod
     mcfg = {"scripts": {"current": "model2_value.py", "others": ["model2_baseline.py"]}}
