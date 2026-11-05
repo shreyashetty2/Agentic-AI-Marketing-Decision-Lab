@@ -1,12 +1,14 @@
 """Shared look for every page: the Decision Lab's own skin, not default Streamlit chrome.
 Colors are the validated palette from the project's dataviz skill (references/palette.md) --
-not eyeballed, the same hexes used in .streamlit/config.toml and the chart helpers."""
+not eyeballed, the same hexes used in .streamlit/config.toml and the chart helpers. Accent is the
+palette's own categorical slot 6 (green), in the spirit of the project's sponsor -- not a claim to
+match TD's exact brand hex, and no TD logo or wordmark anywhere in this app."""
 import streamlit as st
 
 INK = "#0b0b0b"
 INK_SECONDARY = "#52514e"
 INK_MUTED = "#898781"
-ACCENT = "#2a78d6"
+ACCENT = "#008300"
 SURFACE = "#fcfcfb"
 PAGE = "#f9f9f7"
 BORDER = "rgba(11,11,11,0.10)"
