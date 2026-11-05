@@ -17,6 +17,7 @@ def test_each_kind_of_model_in_plain_words():
 def test_scores_in_plain_words():
     assert score_words("within_campaign_capture", 0.5629) == "56.3% (redeemers caught in the top 20% of each campaign's list)"
     assert score_words("mae", 8.32) == "$8.32 (average dollar error per household)"
+    assert score_words("within_campaign_capture_avg", 0.61).startswith("61.0% (redeemers caught, averaged over mailing")
     assert score_words("ipw_stratified_qini", 0.0065).startswith("+0.7 (extra buyers per 100 mailed")
 
 

@@ -42,9 +42,9 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # lets `evaluation.*` / `modeling.*` import as a script
 
 from evaluation.metrics import (  # noqa: E402
-    balance, cluster_bootstrap, e_value, forecast_coverage, metric, within_campaign_capture,
+    balance, cluster_bootstrap, e_value, forecast_coverage, metric, within_campaign_capture, within_campaign_capture_avg,
 )
-from modeling.model1_evaluation import random_expected_capture  # noqa: E402
+from modeling.model1_evaluation import random_expected_capture, random_expected_capture_avg  # noqa: E402
 from evaluation.rules import gap_status, route  # noqa: E402
 from modeling.agent import SPEC_PATH as MODELING_SPEC_PATH, file_hash, load_modeling_spec  # noqa: E402
 from modeling.decision_log import DecisionLog, check  # noqa: E402
@@ -54,7 +54,8 @@ from modeling.proposals import AXES, ledger_upsert  # noqa: E402
 SPEC_PATH = Path(__file__).with_name("evaluation_spec.yaml")
 ROOT = Path(__file__).resolve().parents[2]
 # In the bootstrap, capture uses one random tie-break per resample (as John's bootstrap_capture does)
-FAST = {"within_campaign_capture": lambda d: within_campaign_capture(d["campaign"], d["label"], d["score"], n_seeds=1)}
+FAST = {"within_campaign_capture": lambda d: within_campaign_capture(d["campaign"], d["label"], d["score"], n_seeds=1),
+        "within_campaign_capture_avg": lambda d: within_campaign_capture_avg(d["campaign"], d["label"], d["score"], n_seeds=1)}
 
 
 def load_evaluation_spec(path: Path = SPEC_PATH) -> dict:
@@ -92,11 +93,13 @@ def wide(preds: pd.DataFrame) -> pd.DataFrame:
     return base.join(scores).join(chosen).reset_index()
 
 
-def no_skill_score(task: str, d: pd.DataFrame) -> float:
+def no_skill_score(task: str, d: pd.DataFrame, primary: str | None = None) -> float:
     """The score with no model at all, which anyone understands: mailing the same number of households at random
     (Model 1: about 20% of redeemers), guessing the same average amount for every household (Model 2), or
     mailing at random (Model 3: 0 extra buyers by definition)."""
     if task == "classify":
+        if primary == "within_campaign_capture_avg":   # random mailing, averaged over the same depths (about 27.5%)
+            return random_expected_capture_avg(d["campaign"], d["label"])
         return float(random_expected_capture(d["campaign"], d["label"]))
     if task == "regress":
         return float((d["label"] - d["label"].mean()).abs().mean())
@@ -285,7 +288,7 @@ def evaluate_model(model_id: int, spec: dict, mspec: dict, iteration: int | None
     # every option's own score on the primary measure, and the simple rule's (random targeting is 0 by definition)
     scores = {c: float(metric(primary)[0](scored_by(d, c))) for c in cands}
     scores["baseline_score"] = (0.0 if mcfg["task"] == "uplift" else float(metric(primary)[0](scored_by(d, "baseline_score"))))
-    scores["random"] = no_skill_score(mcfg["task"], d)
+    scores["random"] = no_skill_score(mcfg["task"], d, primary)
     result = {"model_id": model_id, "verdict": verdict, "decided_by": decided_by, "reasons": reasons,
               "owner_model": default, "primary_metric": primary, "vs_baseline": vs_base, "vs_rule": vs_rule,
               "alternatives": alternatives, "attribution": gains, "candidates": cands,

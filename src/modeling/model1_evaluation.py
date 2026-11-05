@@ -1,12 +1,12 @@
 """Model 1 (Response): validate the baseline, understand its features, then compare one change at a time.
 
-Builds on Anna's baseline (src/modeling/model1_baseline.py, PR #8) without changing it. That baseline
+Builds on the baseline (src/modeling/model1_baseline.py, PR #8) without changing it. That baseline
 showed a clear signal on one out-of-time split: the random forest catches 61% of held-out redeemers in
 its top 20%, vs. 52% for the "redeemed before" rule. This script asks how well that holds up, and sets
 up a fair way to improve it (following the mentors' guidance: validate and understand the current
 features before adding complexity, and keep feature gains separate from model gains).
 
-  Step 1  Validate    a) Anna's exact split, scored two ways: pooled (as reported) and WITHIN each
+  Step 1  Validate    a) the baseline's exact split, scored two ways: pooled (as reported) and WITHIN each
                          campaign (one target list per campaign, which is how a marketer uses it).
                       b) Forward-chaining: every campaign starting on/after --first-test-day is tested
                          on its own, trained only on campaigns that ENDED before its feature cutoff
@@ -84,7 +84,7 @@ MODEL_LABELS = {"rf": "Random forest", "lgbm": "LightGBM", "lr": "Logistic regre
 
 # --------------------------------------------------------------------------- data
 def prepare_table(processed: Path) -> pd.DataFrame:
-    """Anna's load_table (same blank handling and type flags), plus a role check on every feature."""
+    """The baseline's load_table (same blank handling and type flags), plus a role check on every feature."""
     table = load_table(processed)
     roles = column_roles(SPEC)
     for col in BASE_FEATURES + list(EXTRA_FEATURES):
@@ -138,11 +138,39 @@ def within_campaign_capture(campaign, y, score, share: float = TOP_SHARE, n_seed
     return caught / (n_seeds * total)
 
 
+CURVE_SHARES = tuple(round(0.05 * k, 2) for k in range(1, 11))   # mailing depths 5%, 10%, ..., 50%
+
+
+def within_campaign_capture_avg(campaign, y, score, shares=CURVE_SHARES, n_seeds: int = 20, seed: int = 0) -> float:
+    """Redeemers caught, averaged over mailing depths 5%, 10%, ..., 50% of EACH campaign's list.
+
+    Model 1's main measure from 10/24 (reports/model1_final_report.md): in the Decision Lab the marketer picks how
+    deep to mail, so the whole top half of the list matters, and averaging over depths is about twice as steady as
+    the top 20% alone (which moves in whole redeemers). Same random tie-breaking as within_campaign_capture, so it
+    equals the mean of within_campaign_capture over `shares`, computed in one pass."""
+    y, score = np.asarray(y), np.asarray(score, dtype=float)
+    total = y.sum()
+    if total == 0:
+        return np.nan
+    groups, rng, caught = _groups(campaign), np.random.default_rng(seed), np.zeros(len(shares))
+    for _ in range(n_seeds):
+        tiebreak = rng.random(len(y))
+        for idx in groups.values():
+            cum = np.cumsum(y[idx[np.lexsort((tiebreak[idx], -score[idx]))]])
+            caught += cum[[max(1, int(round(len(idx) * s))) - 1 for s in shares]]
+    return float(caught.mean() / (n_seeds * total))
+
+
 def random_expected_capture(campaign, y, share: float = TOP_SHARE) -> float:
     """What random targeting reaches with the same per-campaign list sizes (about 20%)."""
     y = np.asarray(y)
     hit = sum(max(1, int(round(len(idx) * share))) / len(idx) * y[idx].sum() for idx in _groups(campaign).values())
     return hit / y.sum()
+
+
+def random_expected_capture_avg(campaign, y, shares=CURVE_SHARES) -> float:
+    """Random targeting on within_campaign_capture_avg (about 27.5%, the average of 5%..50%)."""
+    return float(np.mean([random_expected_capture(campaign, y, s) for s in shares]))
 
 
 def within_campaign_auc(campaign, y, score) -> float:
@@ -196,7 +224,7 @@ def calibration(preds: pd.DataFrame, score_col: str, bins: int = 10) -> dict:
 
 # --------------------------------------------------------------------------- models
 def make_model(name: str):
-    if name == "rf":    # Anna's settings, unchanged
+    if name == "rf":    # the baseline's settings, unchanged
         return RandomForestClassifier(n_estimators=300, max_depth=6, min_samples_leaf=20, random_state=42, n_jobs=-1)
     if name == "lr":
         return make_pipeline(StandardScaler(), LogisticRegression(max_iter=1000))
@@ -283,17 +311,17 @@ def main() -> None:
     log(f"{len(table):,} rows; {len(folds)} forward-chaining folds "
         f"({sum(f['campaign_type'] == 'A' for f in folds)} Type A); cutoff gap {CUTOFF_GAP} days")
 
-    # ---- Step 1a: Anna's split, scored pooled vs. within campaign
+    # ---- Step 1a: the baseline's split, scored pooled vs. within campaign
     train, test = time_split(table)
-    anna = []
+    split_rows = []
     scores = {name: m.predict_proba(test[FEATURES])[:, 1] for name, m in train_models(train).items()}
     scores['"Redeemed before" rule'] = test[RULE].to_numpy()
     for name, s in scores.items():
-        anna.append({"ranking": name,
-                     "pooled (as reported)": top_share_capture(s, test[LABEL].to_numpy()),
-                     "within campaign": within_campaign_capture(test["campaign"], test[LABEL], s, n_seeds=seeds)})
-    anna = pd.DataFrame(anna)
-    anna_random = random_expected_capture(test["campaign"], test[LABEL])
+        split_rows.append({"ranking": name,
+                           "pooled (as reported)": top_share_capture(s, test[LABEL].to_numpy()),
+                           "within campaign": within_campaign_capture(test["campaign"], test[LABEL], s, n_seeds=seeds)})
+    split_rows = pd.DataFrame(split_rows)
+    split_random = random_expected_capture(test["campaign"], test[LABEL])
     log("step 1a done (baseline split re-scored)")
 
     # ---- Step 1b/3: forward-chaining grid
@@ -359,9 +387,9 @@ def main() -> None:
         "",
         "## Step 1a. The baseline split, scored two ways",
         f"Same split as the baseline (earliest 70% of campaigns train, latest 9 test; 1 of the 9 is Type A). "
-        f"Random targeting reaches {anna_random:.1%} within campaign.",
+        f"Random targeting reaches {split_random:.1%} within campaign.",
         "",
-        md_table(anna, pct=("pooled (as reported)", "within campaign")),
+        md_table(split_rows, pct=("pooled (as reported)", "within campaign")),
         "",
         "## Step 1b. Forward-chaining by campaign",
         f"{len(folds)} test campaigns ({sum(f['campaign_type'] == 'A' for f in folds)} Type A), each trained only on campaigns "

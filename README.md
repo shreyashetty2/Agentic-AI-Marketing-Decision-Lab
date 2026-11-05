@@ -309,6 +309,9 @@ python src/modeling/model3_product_lookup.py --campaign 29   # Model 3: product-
 python src/modeling/model3_sure_things.py          # Model 3: classifier flagging likely-wasted sends among already-mailed households
 python src/modeling/model1_evaluation.py           # Model 1: validate the baseline, feature importance, model x feature comparison (~4 min)
 python src/modeling/model1_feature_search.py       # Model 1: which features add something beyond coupon use (~45 min; --quick ~15)
+python src/modeling/model1_importance.py          # Model 1 wrap-up: which new columns matter, other kinds of model, robustness (~20 min)
+python src/modeling/model1_importance.py --beyond-coupons   # Model 1: what drives the gain beyond coupon use (~2 min)
+python src/modeling/model1_importance.py --summary   # Model 1: best result, drivers, held-back check, decision, from saved outputs (seconds)
 python src/modeling/agent.py --model all --mode both  # Step 3, Modeling Agent: reproduce owners' numbers, forward-chain, choose (~2 min)
 python src/evaluation/agent.py --model all          # Step 4, Evaluation Agent: judge each model, verdict + questions for a person
 python src/modeling/brain.py --model 1              # Brain: propose what to try next (needs ANTHROPIC_API_KEY; --manual without)

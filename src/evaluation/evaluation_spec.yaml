@@ -15,9 +15,12 @@ stability_min_share: 0.60                  # below this, the agent's per-fold ch
 
 models:
   1:
-    primary: within_campaign_capture       # redeemers caught when mailing each campaign's top 20%
+    # Main measure from 10/24 (reports/model1_final_report.md, "Decisions on the open questions"): redeemers caught,
+    # averaged over mailing depths 5%, 10%, ..., 50% of each campaign's list. The marketer picks the depth in the
+    # Decision Lab, and it is about twice as steady as the top 20% alone. The top 20% is still reported.
+    primary: within_campaign_capture_avg
     baseline_name: '"Redeemed before" rule'
-    also_report: [within_campaign_auc]
+    also_report: [within_campaign_capture, within_campaign_auc]
     calibration: {kind: forecast_range, min_coverage: 0.80}   # honest per-campaign ranges, not recalibration
     # Model 1 only: recalibrating on past errors was tested and made forecasts worse (model1_calibration work)
     calibration_hint: "widen the forecast ranges; do not recalibrate on past errors (that made Model 1 worse when tested)"
@@ -27,9 +30,9 @@ models:
     newest_campaign: {size: positives, min_size: 15, min_history: 5, width_sd: 2}
     # Raised as a question every run until the team signs it off:
     measure_note: >-
-      The Modeling Agent chooses between options by within-campaign ranking score (AUC), not the team's
-      top-20% capture, because capture moves in whole redeemers and was too noisy to choose by. Does the
-      team accept choosing by AUC while judging by capture?
+      Proposed 10/24 (reports/model1_final_report.md): choose between options by within-campaign ranking
+      score (AUC) and judge them by redeemers caught averaged over mailing depths 5-50%, still reporting the
+      top 20%. Does the team accept this?
   2:
     primary: mae                           # average dollar error; lower is better
     baseline_name: "Usual spend"

@@ -1,10 +1,12 @@
 # Model 1: which features add something beyond coupon use?
 
+> **Update 10/24:** the final Model 1 result, including the importance analysis and the locked-campaign check, is in [`model1_final_report.md`](model1_final_report.md). This report is the 10/19 investigation that led to it.
+
 John Won, 10/19. Follow-up to the 10/16 mentor meeting ("test features beyond coupon use for Model 1, including demographic groups; keep demographics; test feature-group iterations").
 
 ## Short answer
 
-- **Coupon use alone is still as good as the current model.** On the 13 open test campaigns, ranking by coupon use catches 56.5% of redeemers in each campaign's top 20%; Anna's random forest catches 56.4%.
+- **Coupon use alone is still as good as the current model.** On the 13 open test campaigns, ranking by coupon use catches 56.5% of redeemers in each campaign's top 20%; the baseline random forest catches 56.4%.
 - **No single existing group adds much to coupon use**, and no single new column does either.
 - **Four new groups do add something together:** coupon habit in more detail, coupon use on the campaign's own products and commodities, redemption history in more detail, and demographics as numbers.
   - With them, the same forest catches **59.0%** of redeemers (+2.7 points over the current model, 95% range +0.6 to +4.7).
@@ -21,7 +23,7 @@ John Won, 10/19. Follow-up to the 10/16 mentor meeting ("test features beyond co
   - Within-campaign AUC: how well each campaign's list is ordered. It is smooth, so it is good for choosing.
   - Redeemers caught in each campaign's top 20%: the team's headline number.
   - Every gap has a 95% range from resampling whole households.
-- **Fair comparisons:** all models are random forests with Anna's settings unless a learner is named. So a gain comes from the columns alone.
+- **Fair comparisons:** all models are random forests with the baseline's settings unless a learner is named. So a gain comes from the columns alone.
 - **Code:** `src/modeling/model1_feature_search.py`, which wrote every number below. Full tables are in `data/processed/model1_feature_search/report.md`. The official Modeling and Evaluation Agent numbers come from `agent.py` and `evaluation/agent.py` with the new candidates in `modeling_spec.yaml`.
 
 ## What we found
@@ -32,7 +34,7 @@ John Won, 10/19. Follow-up to the 10/16 mentor meeting ("test features beyond co
 |---|---|---|
 | "Redeemed before" rule | 0.685 | 47.6% |
 | Coupon use alone (no model) | 0.804 | 56.5% |
-| Anna's forest (11 columns) | 0.804 | 56.4% |
+| Baseline forest (11 columns) | 0.804 | 56.4% |
 | Forest, 21 already-built columns | 0.810 | 56.9% |
 
 The forest uses past redemption rate and nine other columns, yet it does no better than coupon use alone.
@@ -65,7 +67,7 @@ To see what is left once coupon habit is known, I compared households in the sam
 
 ### 4. The new groups help, but only together
 
-Here each new group is added to Anna's 11 columns, compared with her forest:
+Here each new group is added to the baseline's 11 columns, compared with the baseline forest:
 
 | New group | AUC gap (pts) | Capture gap (pts) | Campaigns better |
 |---|---|---|---|
@@ -91,8 +93,8 @@ With the 39 columns, the forest, a slow LightGBM and logistic regression all lan
 
 The exception is logistic regression on **log-scaled** columns. Coupon counts and dollars are very skewed: a few heavy coupon users sit far out, and a straight-line model handles that badly.
 
-- Anna's logistic regression on her 11 columns catches 53.9%.
-- The same columns log-scaled catch **59.3%** (+2.8 [+0.1, +4.5] over her forest).
+- The baseline's logistic regression on its 11 columns catches 53.9%.
+- The same columns log-scaled catch **59.3%** (+2.8 [+0.1, +4.5] over the baseline forest).
 - C = 0.05 was set once before testing, not tuned.
 
 ### 6. Demographics
@@ -102,7 +104,7 @@ The exception is logistic regression on **log-scaled** columns. Coupon counts an
   - The 22% is Model 3's B/C rows, which are mostly unmailed households: 19% of unmailed rows have demographics, against 63% of mailed ones. The mailer went mostly to households with a demographic record.
 - **The gain doesn't come only from demographics.** Households with demographics redeem much more often: 16% of their mailings, against 7% without. But the new columns help both groups.
 
-  | Households | Anna's forest AUC | `extended_plus` forest AUC |
+  | Households | Baseline forest AUC | `extended_plus` forest AUC |
   |---|---|---|
   | With demographics | 0.786 | 0.800 |
   | Without demographics | 0.796 | 0.824 |
@@ -129,16 +131,16 @@ The exception is logistic regression on **log-scaled** columns. Coupon counts an
 
 ## Official result (Modeling and Evaluation Agents, open campaigns)
 
-| Model | Redeemers caught | vs. Anna's forest (95% range) | Evaluation Agent |
+| Model | Redeemers caught | vs. baseline forest (95% range) | Evaluation Agent |
 |---|---|---|---|
 | Logistic on log-scaled columns, 39 columns | 60.1% | +3.8 [+0.2, +5.5] | reliably better |
-| Logistic on log-scaled columns, Anna's 11 | 59.3% | +3.0 [+0.1, +4.5] | reliably better |
+| Logistic on log-scaled columns, baseline's 11 | 59.3% | +3.0 [+0.1, +4.5] | reliably better |
 | Forest, 39 columns | 59.0% | +2.7 [+0.6, +4.7] | reliably better |
-| Anna's forest, 11 columns (current) | 56.3% | | |
+| Baseline forest, 11 columns (current) | 56.3% | | |
 | Coupon-only forest | 55.6% | −0.7 [−3.2, +1.4] | can't tell |
 | "Redeemed before" rule | 47.6% | | |
 
-- **The agent's recommendation to Anna** is logistic regression on log-scaled columns with the 39 columns. Its own per-campaign selection picked it in 10 of 18 folds.
+- **The agent's recommendation to the model owner** is logistic regression on log-scaled columns with the 39 columns. Its own per-campaign selection picked it in 10 of 18 folds.
 - **Forest randomness alone moves capture by about half a point.** The forest scores differ by up to 0.6 points between the agent and the search script: same columns, different column order, so different random trees. Logistic regression is not random, and the two agree exactly.
 
 ## Caveats
@@ -153,15 +155,15 @@ The exception is logistic regression on **log-scaled** columns. Coupon counts an
 1. **Run the one locked-campaign check now?**
    - Command: `python src/evaluation/agent.py --model 1 --unlock`
    - It would be the second look at campaigns 21 to 25. The agent flags a second look as less clean, and with 811 rows it can catch a failure but not confirm a 3-point gain.
-   - My suggestion: run it once for `extended_plus_forest` and `extended_plus_logistic_log` before Anna decides, and make no more Model 1 changes after it.
+   - My suggestion: run it once for `extended_plus_forest` and `extended_plus_logistic_log` before the model owner decides, and make no more Model 1 changes after it.
    - **Lead agent replays.** A replay holds nothing back, so one as of day 657 or later grades campaigns 21 and 22, and one as of day 720 grades all five. Pranav's examples use day 660. Any replay of Model 1 on this branch past day 656 would show the new options' results on held-back campaigns. Hold off on those replays until this decision is made.
-2. **Anna:** adopt `extended_plus_logistic_log`, `extended_plus_forest`, or keep the current forest? Switching is the owner's decision.
-   - With Pranav's lead agent, this needs no script edits: `python src/lead/in_use.py set --model 1 --idea extended_plus_logistic_log --by "Yuxin Cai" --reason "..."`, or ask the lead agent (`/lead-agent`).
+2. **Model owner:** adopt `extended_plus_logistic_log`, `extended_plus_forest`, or keep the current forest? Switching is the owner's decision.
+   - With Pranav's lead agent, this needs no script edits: `python src/lead/in_use.py set --model 1 --idea extended_plus_logistic_log --by "<name>" --reason "..."`, or ask the lead agent (`/lead-agent`).
    - The forest stays in as an option for comparison, and `in_use.py clear --model 1` switches back.
 3. **Pranav and the team:** OK with 2A building the 18 columns?
    - On 10/16 we agreed the Feature Agent stays mechanical and new feature ideas live in the Modeling Agent. Here the ideas came from the modeling side, and 2A only computes them, because the Modeling Agent can't build columns.
    - The demographics recode settles a loose end. The 2A spec said turning labels into numbers was the Modeling Agent's job, while the Modeling Agent sends text columns back to the Feature Agent.
 4. **Is the brain useful?** Evidence from Model 1:
-   - Its round-2 Model 1 ideas didn't beat Anna's forest.
+   - Its round-2 Model 1 ideas didn't beat the baseline forest.
    - Its one new-column idea (coupon use on the campaign's own products) adds +0.5 AUC on its own, within noise.
    - The gain here needed many new columns built and tested together. The brain can only name a column for the Feature Agent to build. So far, the brain is most useful for trying settings on existing columns, and a person still had to build and screen new features.

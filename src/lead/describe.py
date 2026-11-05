@@ -18,11 +18,15 @@ DERIVED = {"is_type_a": "Whether the campaign is Type A.", "is_type_b": "Whether
 
 SCORES = {   # metric -> (what it measures, how to show a value)
     "within_campaign_capture": ("redeemers caught in the top 20% of each campaign's list", lambda v: f"{v:.1%}"),
+    "within_campaign_capture_avg": ("redeemers caught, averaged over mailing the top 5% to 50% of each campaign's list",
+                                    lambda v: f"{v:.1%}"),
     "mae": ("average dollar error per household", lambda v: f"${v:.2f}"),
     "ipw_stratified_qini": ("extra buyers per 100 mailed households, compared with mailing at random",
                             lambda v: f"{100 * v:+.1f}"),
 }
-GAP = {"within_campaign_capture": lambda v: f"{100 * v:+.1f} points", "mae": lambda v: f"{'+' if v >= 0 else '-'}${abs(v):.2f}",
+GAP = {"within_campaign_capture": lambda v: f"{100 * v:+.1f} points",
+       "within_campaign_capture_avg": lambda v: f"{100 * v:+.1f} points",
+       "mae": lambda v: f"{'+' if v >= 0 else '-'}${abs(v):.2f}",
        "ipw_stratified_qini": lambda v: f"{100 * v:+.1f} per 100"}
 
 
