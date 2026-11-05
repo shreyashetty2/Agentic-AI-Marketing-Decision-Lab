@@ -1,4 +1,4 @@
-"""A marketer-facing chat over Model 1 and Model 3, grounded only in already-computed facts."""
+"""A marketer-facing chat over all three models, grounded only in already-computed facts."""
 import sys
 from pathlib import Path
 
@@ -12,10 +12,10 @@ st.set_page_config(page_title="Ask the Decision Lab", layout="wide")
 inject()
 st.title("Ask the Decision Lab")
 st.caption(
-    "Ask about who to target, which segments respond best, or how confident a result is. Answers are "
-    "grounded only in numbers the Modeling and Evaluation Agents already computed for Model 1 "
-    "(redemption likelihood) and Model 3 (uplift and sure things) -- it will say so rather than guess "
-    "at anything it wasn't given."
+    "Ask about who to target, which segments respond best, what to expect to spend, or how confident "
+    "a result is. Answers are grounded only in numbers the Modeling and Evaluation Agents already "
+    "computed for Model 1 (redemption likelihood), Model 2 (spend forecast), and Model 3 (uplift and "
+    "sure things) -- it will say so rather than guess at anything it wasn't given."
 )
 
 if not credentials_ok():
@@ -35,7 +35,7 @@ for turn in st.session_state.chat_history:
 
 examples = [
     "Which households should we target with Model 3?",
-    "How confident are we in the Model 3 uplift result?",
+    "How much should we expect a mailed household to spend, per Model 2?",
     "Which population segment redeems the most, per Model 1?",
 ]
 if not st.session_state.chat_history:
@@ -46,7 +46,7 @@ if not st.session_state.chat_history:
             st.session_state.pending = ex
             st.rerun()
 
-question = st.chat_input("Ask about Model 1 or Model 3...") or st.session_state.pop("pending", None)
+question = st.chat_input("Ask about Model 1, 2, or 3...") or st.session_state.pop("pending", None)
 if question:
     st.session_state.chat_history.append({"role": "user", "content": question})
     with st.chat_message("user"):
