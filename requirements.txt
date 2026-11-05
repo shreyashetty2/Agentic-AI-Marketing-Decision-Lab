@@ -22,8 +22,12 @@ pyyaml
 # Tests
 pytest
 
-# --- To add once the team decides (API / UI / LLM) ---
+# Decision Lab interface
+streamlit
+google-genai       # Ask the Decision Lab chat page, via Vertex AI (Gemini) -- billed to GCP credits,
+                   # auth via `gcloud auth application-default login`, no API key
+
+# --- To add once the team decides (API) ---
 # fastapi
 # uvicorn
-# streamlit
 anthropic          # the brain (src/modeling/brain.py); its key stays in the local .env
