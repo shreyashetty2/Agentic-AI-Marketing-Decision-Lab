@@ -1,14 +1,20 @@
 """Ask the Decision Lab: a stakeholder-facing Q&A over Model 1 and Model 3, grounded only in numbers
 this repo already computed. Same rule the lead-agent skill follows for a data scientist, applied here
-for a marketer: the model paraphrases and reasons about given facts, it never computes a new one."""
+for a marketer: the model paraphrases and reasons about given facts, it never computes a new one.
+
+Runs on Vertex AI (Gemini), not a third-party API key -- billed to this project's own GCP credits, per
+docs/agent_design/gcp_deployment.md's plan for the real front door. Needs `gcloud auth application-default
+login` once (ADC), the same login already used for this project's Cloud Run deployment.
+"""
 import os
-from pathlib import Path
 
 import streamlit as st
 
-from lib.data import ROOT, load_predictions, load_run_summary, load_sure_things, step, with_demographics
+from lib.data import load_predictions, load_run_summary, load_sure_things, step, with_demographics
 
-CHAT_MODEL = "claude-sonnet-5"
+GCP_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "capstone-decision-lab")
+GCP_LOCATION = os.environ.get("GOOGLE_CLOUD_LOCATION", "global")
+CHAT_MODEL = "gemini-3.8-flash"
 
 SYSTEM_PROMPT = """You are the Decision Lab, answering a marketing stakeholder's questions about two models \
 built on grocery-chain loyalty data: Model 1 (who is likely to redeem a mailed coupon) and Model 3 \
@@ -31,14 +37,14 @@ Overview page instead of guessing at its numbers.
 """
 
 
-def api_key() -> str | None:
-    key = os.environ.get("ANTHROPIC_API_KEY")
-    env = ROOT / ".env"
-    if not key and env.exists():
-        for line in env.read_text().splitlines():
-            if line.startswith("ANTHROPIC_API_KEY="):
-                key = line.split("=", 1)[1].strip().strip('"').strip("'")
-    return key or None
+def credentials_ok() -> bool:
+    """Whether Application Default Credentials are available at all -- cheap, makes no API call."""
+    try:
+        import google.auth
+        google.auth.default()
+        return True
+    except Exception:
+        return False
 
 
 def _model_facts(summary: dict, model: int) -> str:
@@ -104,14 +110,18 @@ def cached_context() -> str:
 
 
 def ask(history: list[dict], question: str) -> str:
-    """One call: the full grounding context plus the chat history plus the new question. No tool use,
-    no retries -- if the model can't answer from the context, it says so, per the system prompt."""
-    import anthropic
-    client = anthropic.Anthropic(api_key=api_key())
-    context = cached_context()
-    messages = [*history, {"role": "user", "content": question}]
-    msg = client.messages.create(
-        model=CHAT_MODEL, max_tokens=700,
-        system=f"{SYSTEM_PROMPT}\n\n--- Facts you may use ---\n{context}",
-        messages=messages)
-    return "".join(b.text for b in msg.content if getattr(b, "type", None) == "text")
+    """One call: the full grounding context as the system instruction, the chat history, the new
+    question. No tool use, no retries -- if the model can't answer from the context, it says so, per
+    the system prompt (verified directly: asked a fact-check question outside given context, it
+    refused rather than guessing)."""
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(vertexai=True, project=GCP_PROJECT, location=GCP_LOCATION)
+    contents = [types.Content(role="model" if h["role"] == "assistant" else "user",
+                              parts=[types.Part(text=h["content"])]) for h in history]
+    contents.append(types.Content(role="user", parts=[types.Part(text=question)]))
+    resp = client.models.generate_content(
+        model=CHAT_MODEL, contents=contents,
+        config=types.GenerateContentConfig(system_instruction=f"{SYSTEM_PROMPT}\n\n--- Facts you may use ---\n{cached_context()}"))
+    return resp.text
