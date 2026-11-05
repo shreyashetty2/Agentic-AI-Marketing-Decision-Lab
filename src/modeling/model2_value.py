@@ -1,16 +1,22 @@
-"""Model 2: Expected Financial Value -- calibrated usual-spend model (primary build).
+"""Model 2: Expected Financial Value -- a line on usual spend (primary build, final).
 
 Supersedes model2_baseline.py as the primary Model 2 build (the baseline stays as the comparison it
 was built to be). For a household that redeems a TypeB/C campaign, predicts its spend on that
 campaign's products during the campaign window.
 
-The primary model is deliberately small: a one-feature median (least-absolute-deviation) regression
-of spend on "usual spend" -- the household's average weekly spend on this campaign's products over
-the 26 weeks before the cutoff, times the campaign's length in weeks. In other words, it calibrates
-the README's own "usual spend" benchmark rather than replacing it. Every larger model tried (more
-features, log target, tree ensembles, LightGBM, campaign-level features -- see
-docs/agent_design/modeling_agent_model2_design.md and notebooks/yuxin_01_model2_tuning_experiments.py)
-failed to beat usual spend reliably on 254 rows; this is the only candidate that does.
+The primary model is deliberately small: a one-feature least-squares line of spend on "usual spend"
+-- the household's average weekly spend on this campaign's products over the 26 weeks before the
+cutoff, times the campaign's length in weeks. In other words, it calibrates the README's own "usual
+spend" benchmark rather than replacing it. Every larger model tried (more features, log target, tree
+ensembles, LightGBM, Tweedie, campaign-level features -- see docs/agent_design/modeling_agent_model2_design.md,
+reports/model2_candidate_comparison.md and notebooks/yuxin_01_model2_tuning_experiments.py) failed to
+beat a line on usual spend reliably on 254 rows.
+
+Why least squares and not the median line this script used on Oct 15: the Decision Lab adds
+predictions up, and on right-skewed spend a median line's totals come out low (0.80 of actual on the
+Evaluation Agent's test campaigns). A least-squares line goes through the mean, so its totals add up
+(0.95). The median line stays in below as a comparison. Final decision and checks:
+reports/model2_final_report.md.
 
 Evaluated two ways, because a single 70/30 split leaves only 128 test rows from 8 campaigns:
   1. the same 70/30 out-of-time split as every model{n}_baseline.py (comparable across models);
@@ -40,7 +46,7 @@ USUAL = "usual_spend"
 TRAIN_FRACTION = 0.7
 MIN_TRAIN_ROWS = 60       # walk-forward starts once a campaign has this much earlier history
 N_BOOTSTRAP = 2000
-PRIMARY = "Calibrated usual spend (primary)"
+PRIMARY = "Line on usual spend (primary)"
 BENCHMARK = "Usual spend (benchmark)"
 
 # Same candidate inputs as model2_baseline.py, used only by the comparison models below.
@@ -111,6 +117,21 @@ class UsualSpend:
         return table[USUAL].to_numpy()
 
 
+class LinearUsualSpend:
+    """spend = slope x usual_spend + intercept, fit by least squares: the primary Model 2.
+
+    Least squares targets the mean, so predictions add up to actual spend on the rows the line is fit
+    on -- what the Decision Lab needs when it sums expected spend over a mailing list."""
+
+    def fit(self, train: pd.DataFrame):
+        model = LinearRegression().fit(train[[USUAL]], train[LABEL])
+        self.slope, self.intercept = float(model.coef_[0]), float(model.intercept_)
+        return self
+
+    def predict(self, table: pd.DataFrame) -> np.ndarray:
+        return np.clip(self.slope * table[USUAL].to_numpy() + self.intercept, 0, None)
+
+
 class TotalsCalibratedUsualSpend(CalibratedUsualSpend):
     """The median line above, rescaled so its predictions on the training rows add up to actual spend.
 
@@ -173,8 +194,9 @@ class FeatureModel:
 def model_factories() -> dict:
     """Primary model, the benchmark it must beat, and the comparisons that show why it was chosen."""
     return {
-        PRIMARY: CalibratedUsualSpend,
+        PRIMARY: LinearUsualSpend,
         BENCHMARK: UsualSpend,
+        "Median line on usual spend (Oct 15)": CalibratedUsualSpend,
         "Training-set mean": TrainingMean,
         "Huber regression, baseline features + usual spend": lambda: FeatureModel(
             make_pipeline(StandardScaler(), HuberRegressor(max_iter=1000)), BASELINE_FEATURES + [USUAL]),
@@ -190,7 +212,9 @@ def errors(y, pred) -> dict:
     y, pred = np.asarray(y, dtype=float), np.asarray(pred, dtype=float)
     abs_err = np.abs(y - pred)
     rho = spearmanr(pred, y)[0] if np.ptp(pred) > 0 else float("nan")
-    return {"mae": float(abs_err.mean()), "median_ae": float(np.median(abs_err)), "rank_rho": float(rho)}
+    total_ratio = float(pred.sum() / y.sum()) if y.sum() > 0 else float("nan")
+    return {"mae": float(abs_err.mean()), "median_ae": float(np.median(abs_err)), "rank_rho": float(rho),
+            "total_ratio": total_ratio}
 
 
 def evaluate_split(factories: dict, train: pd.DataFrame, test: pd.DataFrame) -> pd.DataFrame:
@@ -240,22 +264,23 @@ def quintile_check(actual, pred, benchmark) -> pd.DataFrame:
 
 
 def _table(df: pd.DataFrame) -> str:
-    lines = ["| Model | Mean abs. error ($) | Median abs. error ($) | Rank correlation |", "|---|---|---|---|"]
+    lines = ["| Model | Mean abs. error ($) | Median abs. error ($) | Rank correlation | Predicted / actual total |",
+             "|---|---|---|---|---|"]
     for r in df.itertuples():
         rho = "n/a" if np.isnan(r.rank_rho) else f"{r.rank_rho:.2f}"
-        lines.append(f"| {r.model} | {r.mae:.2f} | {r.median_ae:.2f} | {rho} |")
+        lines.append(f"| {r.model} | {r.mae:.2f} | {r.median_ae:.2f} | {rho} | {r.total_ratio:.2f} |")
     return "\n".join(lines)
 
 
 def render_report(table, train, test, fitted, split, wf, boot, quintiles) -> str:
-    return f"""# Model 2: calibrated usual-spend model run report
+    return f"""# Model 2: line on usual spend run report
 
 Primary Model 2 build (supersedes `model2_baseline.py`). Design and every alternative tried:
 `docs/agent_design/modeling_agent_model2_design.md`.
 
 ## Primary model
 
-One-feature median regression, fit on all {len(table)} rows for scoring:
+One-feature least-squares line, fit on all {len(table)} rows for scoring:
 
 **spend = {fitted.slope:.2f} x usual spend + ${fitted.intercept:.2f}**
 
@@ -268,7 +293,7 @@ Each campaign predicted from campaigns that started before it; {len(wf['actual']
 
 {_table(wf['summary'])}
 
-Calibrated usual spend vs. usual spend: MAE difference {boot['diff']:+.2f}
+Line on usual spend vs. usual spend: MAE difference {boot['diff']:+.2f}
 (95% campaign-bootstrap CI {boot['ci_low']:+.2f} to {boot['ci_high']:+.2f}; better in
 {boot['share_better']:.0%} of {N_BOOTSTRAP:,} resamples).
 
@@ -278,14 +303,15 @@ Train: {len(train)} rows, {train['campaign'].nunique()} campaigns | Test: {len(t
 
 {_table(split)}
 
-## Quintile check (walk-forward, ranked by calibrated prediction)
+## Quintile check (walk-forward, ranked by the primary model's prediction)
 
 ```
 {quintiles.to_string(index=False)}
 ```
 
-Ranking is correct in every quintile. All levels are under-predicted by a few dollars: later
-campaigns spend more than earlier ones, which no pre-campaign feature tried here captures.
+The top two quintiles are clearly separated from the bottom three; within the bottom three, actual
+spend is roughly flat ($10-12) while predictions rise slightly. The top quintile is under-predicted:
+later campaigns spend more than earlier ones, which no pre-campaign feature tried here captures.
 """
 
 
@@ -302,7 +328,7 @@ def main() -> None:
     wf = evaluate_walk_forward(factories, table)
     boot = bootstrap_vs_benchmark(wf["actual"], wf["preds"][PRIMARY], wf["preds"][BENCHMARK], wf["campaign"])
     quintiles = quintile_check(wf["actual"], wf["preds"][PRIMARY], wf["preds"][BENCHMARK])
-    fitted = CalibratedUsualSpend().fit(table)
+    fitted = LinearUsualSpend().fit(table)
 
     print(f"Primary model (fit on all {len(table)} rows): spend = {fitted.slope:.2f} x usual spend + ${fitted.intercept:.2f}")
     print(f"\nWalk-forward ({len(wf['actual'])} rows, {len(np.unique(wf['campaign']))} campaigns):")

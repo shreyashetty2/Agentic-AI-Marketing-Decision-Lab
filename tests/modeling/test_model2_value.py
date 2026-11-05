@@ -8,7 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from modeling.model2_value import (  # noqa: E402
-    LABEL, USUAL, CalibratedUsualSpend, TotalsCalibratedUsualSpend, TweedieUsualSpend, UsualSpend,
+    LABEL, USUAL, CalibratedUsualSpend, LinearUsualSpend, TotalsCalibratedUsualSpend, TweedieUsualSpend, UsualSpend,
     bootstrap_vs_benchmark, errors, time_split, usual_spend, walk_forward_splits,
 )
 
@@ -128,3 +128,22 @@ def test_tweedie_totals_are_close_and_predictions_are_positive():
     pred = TweedieUsualSpend().fit(train).predict(train)
     assert (pred > 0).all()
     assert pred.sum() / train[LABEL].sum() == pytest.approx(1.0, abs=0.05)
+
+
+def test_line_on_usual_spend_recovers_an_exact_line():
+    usual = np.arange(0, 40, dtype=float)
+    model = LinearUsualSpend().fit(pd.DataFrame({USUAL: usual, LABEL: 0.7 * usual + 9.0}))
+    assert model.slope == pytest.approx(0.7) and model.intercept == pytest.approx(9.0)
+
+
+def test_line_on_usual_spend_adds_up_to_actual_spend_where_a_median_line_falls_short():
+    train = _skewed_spend()
+    line = LinearUsualSpend().fit(train).predict(train)
+    median_line = CalibratedUsualSpend().fit(train).predict(train)
+    assert line.sum() == pytest.approx(train[LABEL].sum(), rel=1e-6)   # no clipping on this data
+    assert median_line.sum() < train[LABEL].sum()
+
+
+def test_errors_reports_the_totals_ratio():
+    assert errors([10, 20, 30], [15, 15, 30])["total_ratio"] == pytest.approx(1.0)
+    assert errors([10, 10], [5, 5])["total_ratio"] == pytest.approx(0.5)

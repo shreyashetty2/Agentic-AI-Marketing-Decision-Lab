@@ -6,8 +6,9 @@ test it the same way as every other candidate. Each model's CURRENT script (mode
 `scripts.current`) supplies the table; the others stay in as comparisons.
 
   Model 1 (Yuxin, John): model1_baseline.load_table + train_models  ("Random forest", "Logistic regression")
-  Model 2 (Yuxin):       model2_value.load_table + CalibratedUsualSpend (current: usual spend, calibrated);
-                         TotalsCalibratedUsualSpend and TweedieUsualSpend (usual spend only) as candidates;
+  Model 2 (Yuxin):       model2_value.load_table + LinearUsualSpend (current: least-squares line on usual spend);
+                         CalibratedUsualSpend (the Oct 15 median line), TotalsCalibratedUsualSpend and
+                         TweedieUsualSpend (usual spend only) as candidates;
                          model2_baseline.train_models ("Random forest", "Linear regression") for comparison
   Model 3 (Shreya):      model3_uplift.load_table + train_t_learner (two random forests, uplift = difference)
 """
@@ -35,7 +36,7 @@ def owner_features(model_id: int) -> list[str]:
 def owner_learner_features(model_id: int, owner_learner: str) -> list[str]:
     """The columns one owner model actually uses: the calibrated Model 2 uses usual spend only; the
     confound-aware X-learner adds campaign_promo_share to the owner's usual list."""
-    if owner_learner in ("calibrated", "calibrated_totals", "tweedie"):
+    if owner_learner in ("usual_linear", "calibrated", "calibrated_totals", "tweedie"):
         return [model2_value.USUAL]
     if owner_learner == "x_learner_confound_aware":
         return list(model3_uplift.CONFOUND_AWARE_FEATURES)
@@ -66,6 +67,8 @@ def fit_owner(model_id: int, owner_learner: str, train: pd.DataFrame, candidate_
             return Fitted(candidate_id, "regress", features, estimator=model3_uplift.train_dr_learner(train))
         model_t, model_c, _, _ = model3_uplift.train_t_learner(train)
         return Fitted(candidate_id, "uplift", features, treated_model=model_t, control_model=model_c)
+    if owner_learner == "usual_linear":
+        return Fitted(candidate_id, "regress", features, estimator=model2_value.LinearUsualSpend().fit(train))
     if owner_learner == "calibrated":
         return Fitted(candidate_id, "regress", features, estimator=model2_value.CalibratedUsualSpend().fit(train))
     if owner_learner == "calibrated_totals":
