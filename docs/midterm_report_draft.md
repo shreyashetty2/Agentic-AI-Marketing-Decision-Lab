@@ -101,9 +101,26 @@ without every question having to pass between the two.
 
 #### 2.1.1 Dataset and pipeline-wide preprocessing
 
-_TODO — Zhiyan (Data Agent) / Pranav (agent architecture):_ describe the dunnhumby "Complete
-Journey" source tables, the Data Agent's cleaning steps, and anything significant or non-standard
-about how raw data becomes the shared feature tables the three models build on.
+_TODO — Zhiyan (Data Agent):_ describe the dunnhumby "Complete Journey" source tables and the Data
+Agent's own cleaning steps (pipeline Step 1) that produce the inputs Feature Agent 2A reads.
+
+_TODO — Pranav (agent architecture):_ describe how the Lead Agent coordinates the Data/Feature/
+Modeling/Evaluation Agents end to end, including the staleness/rerun logic referenced in §2.3.1.
+
+**Feature Agent 2B (Shreya) — shared across all three models.** Feature Agent 2A builds one shared
+table (75,000 rows: 2,500 households × 30 campaigns) carrying every model's candidate input
+columns and every model's answer column side by side. 2B's job is to turn that into one clean
+table *per model* — the right rows, the right answer column, nothing else changed — with the exact
+rule for each model read directly from `src/features/feature_2b_spec.yaml`, so the design doc and
+the code can't drift apart. Row counts, verified against the real data rather than assumed:
+**Model 1** — every mailed household × campaign pair, all 30 campaigns, 7,208 rows; **Model 2** —
+redeemed, mailed, TypeB/C only, 254 rows; **Model 3** — TypeB/C only, treatment + clean control
+(rows mailed an overlapping campaign excluded), 43,396 rows (3,229 treated, 40,167 control). 2B
+also owns a **leakage rail**: each model's table only ever contains that model's own label (plus,
+for Model 3, the treatment flag that decides which rows train Model T vs. Model C — never fed in
+as a model input), with every other model's outcome/filter columns dropped entirely, not just
+tagged; the build script stops the run if a label column is ever found inside a feature list.
+Re-running on the same 2A output reproduces byte-identical tables. More in the Appendix.
 
 #### 2.1.2 Model 1 data (Campaign Response Probability)
 
@@ -162,7 +179,8 @@ Three questions were answered directly against the full dataset before any model
 3. **How much of "success" is actually coupon-driven?** Of 1,596 treated households who bought an
    eligible product, 1,407 (88.2%) did so *without ever redeeming the coupon* — direct, observed
    confirmation of (2), not an inference. A campaign-level breakdown shows this holds across every
-   campaign with enough volume to check (80–95% unredeemed-but-bought).
+   campaign with enough volume to check (79.7%–95.2% unredeemed-but-bought; full table in the
+   Appendix).
 
 A secondary demographic cut (homeowner status, number of kids, age group) was also run, but only
 covers 801 of 2,500 households with a demographic record on file. Uplift is positive and broadly
@@ -326,6 +344,20 @@ through end of April, justified by this report's observations.
   modeling discipline over repeated iteration, not just whether they can produce a single good
   result.
 
+**Platform — merging the agents and all three models' results into the app (Shreya, next, through
+April):**
+- The Lead Agent engine already runs as a Docker container (`Dockerfile`,
+  `scripts/gcp_entrypoint.sh`), deployable as a scheduled Cloud Run Job with data synced through a
+  GCS bucket rather than baked into the image (`docs/agent_design/gcp_deployment.md`) — built and
+  run locally to confirm the container works before documenting the exact `gcloud` deployment
+  commands.
+- The next stage on that same path is merging the agent architecture (Lead Agent + Modeling +
+  Evaluation Agents) and all three models' latest results into one marketer-facing surface — the
+  Decision Lab. A first version of that surface (a Streamlit app with a page per model and a
+  grounded "Ask the Decision Lab" chat agent over all three models' outputs) was built this week;
+  it, and how well it actually holds up, is being written up in next week's report rather than
+  this one, once there's been time to test it properly rather than just ship it.
+
 ---
 
 ## 5. Contributions
@@ -340,7 +372,11 @@ _One paragraph per member, describing their contributions to **this report**._
 > and confound-aware variants) that led to adopting the X-learner as the model in use. She also
 > built the sure-things classifier as a complementary targeting-deprioritization signal, added and
 > then substantially improved the `campaign_promo_share` confounder feature, and reported an
-> E-value sensitivity check alongside the model's existing calibration diagnostics.
+> E-value sensitivity check alongside the model's existing calibration diagnostics. Beyond Model 3,
+> she built Feature Agent 2B — the shared step that turns Feature Agent 2A's one combined table
+> into a clean, leakage-checked table for each of the three models — and did the first
+> infrastructure work toward deploying the Lead Agent on GCP (Dockerfile, entrypoint script, and
+> the Cloud Run deployment plan), the groundwork the Decision Lab app is being built on top of.
 
 > _TODO — **Yuxin Cai**:_ your contributions to this report.
 
@@ -349,3 +385,118 @@ _One paragraph per member, describing their contributions to **this report**._
 > _TODO — **John Won**:_ your contributions to this report.
 
 > _TODO — **Zhiyan Yang**:_ your contributions to this report.
+
+---
+
+## 6. Appendix
+
+_TODO — John, Yuxin, Pranav, Zhiyan:_ add Model 1 / Model 2 / agent-architecture / Data Agent
+technical detail here as needed. Model 3's detail (Shreya) is below.
+
+### A. Model 3 — full demographic segmentation (801 of 2,500 households with a demographic
+record; categories with fewer than 20 treated households dropped)
+
+By homeowner status:
+
+| homeowner_desc | n_treated | n_control | treated_rate | control_rate | observed_uplift |
+|---|---|---|---|---|---|
+| Probable Owner | 20 | 106 | 0.700000 | 0.283019 | 0.416981 |
+| Homeowner | 1,331 | 4,832 | 0.571751 | 0.292632 | 0.279118 |
+| Renter | 124 | 350 | 0.532258 | 0.274286 | 0.257972 |
+| Unknown | 543 | 2,231 | 0.497238 | 0.248767 | 0.248470 |
+
+By number of kids:
+
+| kid_category_desc | n_treated | n_control | treated_rate | control_rate | observed_uplift |
+|---|---|---|---|---|---|
+| 1 | 339 | 1,101 | 0.572271 | 0.284287 | 0.287984 |
+| 2 | 220 | 551 | 0.618182 | 0.330309 | 0.287873 |
+| None/Unknown | 1,280 | 5,315 | 0.532031 | 0.267545 | 0.264487 |
+| 3+ | 195 | 693 | 0.528205 | 0.307359 | 0.220846 |
+
+By age group (`classification_1`):
+
+| classification_1 | n_treated | n_control | treated_rate | control_rate | observed_uplift |
+|---|---|---|---|---|---|
+| Age Group3 | 568 | 1,725 | 0.593310 | 0.276522 | 0.316788 |
+| Age Group6 | 108 | 814 | 0.500000 | 0.224816 | 0.275184 |
+| Age Group4 | 686 | 2,820 | 0.533528 | 0.279787 | 0.253740 |
+| Age Group2 | 425 | 1,357 | 0.555294 | 0.311717 | 0.243577 |
+| Age Group5 | 126 | 508 | 0.492063 | 0.251969 | 0.240095 |
+| Age Group1 | 121 | 436 | 0.487603 | 0.298165 | 0.189438 |
+
+### B. Model 3 — full campaign-level redemption breakdown (campaigns with ≥20 treated purchasers)
+
+| campaign | n_bought | n_without_redemption | pct_without_redemption |
+|---|---|---|---|
+| 11 | 62 | 59.0 | 95.2 |
+| 22 | 168 | 156.0 | 92.9 |
+| 24 | 79 | 72.0 | 91.1 |
+| 20 | 155 | 141.0 | 91.0 |
+| 12 | 100 | 91.0 | 91.0 |
+| 4 | 33 | 30.0 | 90.9 |
+| 14 | 158 | 142.0 | 89.9 |
+| 21 | 25 | 22.0 | 88.0 |
+| 25 | 129 | 113.0 | 87.6 |
+| 9 | 95 | 83.0 | 87.4 |
+| 10 | 39 | 34.0 | 87.2 |
+| 17 | 107 | 93.0 | 86.9 |
+| 29 | 78 | 67.0 | 85.9 |
+| 7 | 27 | 23.0 | 85.2 |
+| 23 | 122 | 102.0 | 83.6 |
+| 5 | 36 | 30.0 | 83.3 |
+| 16 | 63 | 51.0 | 81.0 |
+| 19 | 59 | 47.0 | 79.7 |
+
+### C. Model 3 — held-out quintile evaluation (uplift model's predicted-score quintiles vs. actual
+observed uplift)
+
+| quintile | n_treated | n_control | actual_uplift |
+|---|---|---|---|
+| 0 | 824 | 1,907 | 0.3650 |
+| 1 | 228 | 2,502 | 0.3441 |
+| 2 | 72 | 2,724 | 0.5051 |
+| 3 | 167 | 2,498 | 0.4623 |
+| 4 | 96 | 2,635 | 0.4017 |
+
+Spearman rank correlation (quintile vs. actual observed uplift): rho = 0.500, p = 0.391 — not
+statistically significant on this split. Held-out Qini coefficient: −199.75, a known artifact of
+treated/control non-overlap at the extremes of the ranking (§2.2.3), not evidence the per-tier
+signal above is wrong.
+
+### D. Model 3 — model setup detail
+
+- **T-learner / X-learner base estimators:** `RandomForestClassifier(n_estimators=300, max_depth=6,
+  min_samples_leaf=20)` for both Model T and Model C, natural class distribution (no
+  `class_weight='balanced'` — see §2.3.4).
+- **Train / test split:** out-of-time, earliest 70% of campaigns train / latest 30% test — 1,842
+  treated + 27,901 control rows train; sure-things classifier trains on the same 1,842 treated
+  rows, tests on 1,387 treated rows.
+- **Feature list:** `spend_per_week_8w`, `spend_per_week_26w`, `avg_basket_value_26w`,
+  `trips_per_week_26w`, `coupon_lines_per_week_26w`, `share_spend_on_discount_26w`,
+  `past_redemption_rate`, `campaign_product_spend_per_week_26w`, `campaign_product_share_26w`,
+  `history_weeks_before_cutoff`, `duration_days`.
+- **Product-level drill-down** (`src/modeling/model3_product_lookup.py`): the same
+  without-redemption pattern checked product-by-product rather than aggregated per campaign — 208
+  qualifying products (≥5 treated purchases) ranked and saved to
+  `data/processed/model3_product_redemption_summary.csv`; the top of that list is dominated by
+  everyday staples (eggs, pasta sauce, cheese, juice) bought without redemption 74–100% of the
+  time, an individual-product confirmation of the same 88.2% aggregate finding, not a separate
+  result.
+
+### E. Verification and testing notes
+
+- **Feature Agent 2B's leakage rail** is enforced mechanically, not just documented: the build
+  script stops the run if a label/filter column from one model ever ends up in another model's
+  feature list, and re-running on identical 2A output reproduces byte-identical per-model tables.
+- **The E-value implementation is checked against the original published result**, not just unit
+  logic: `tests/evaluation/test_metrics.py::test_e_value_matches_the_known_worked_example` asserts
+  the function reproduces VanderWeele & Ding (2017)'s own worked example (risk ratio 3.9 → E-value
+  ≈ 7.27) to within 0.01 — the implementation returns 7.264.
+- **Early exploratory work**, predating the formal `model3_uplift.py` build: an empirical baseline
+  uplift notebook (`notebooks/empirical_uplift_baseline_Model3_try.ipynb`, 10/1) that first checked
+  whether an uplift signal existed at all, and a standalone script
+  (`notebooks/model3_slide_numbers_audit.py`, 10/2) written to verify the specific numbers claimed
+  on the team's Model 3 proposal slide against the real data before they were presented. Both were
+  superseded by the finalized, tested pipeline but are kept as the record of how the team got
+  there.
