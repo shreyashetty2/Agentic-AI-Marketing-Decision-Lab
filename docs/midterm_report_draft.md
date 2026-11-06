@@ -1,11 +1,119 @@
-# Midterm Report Draft: Model 3 (True Incremental Uplift)
+# Midterm Report: DSI Capstone
 
-Author: Shreya Shetty (svs2148). Written to be dropped into the shared team midterm report under
-the matching headers. Sourced from `reports/model3_candidate_comparison.md`,
-`reports/model3_uplift_report.md`, `reports/model3_sure_things_report.md`,
-`reports/model3_redemption_analysis.md`, and `docs/agent_design/modeling_agent_model3_design.md`.
+Yuxin Cai, Shreya Shetty, Pranav Jain, John Won, Zhiyan Yang
 
-## Methods → Data (Model 3: True Incremental Uplift)
+> Shared skeleton for the full midterm report (guidelines: Introduction ~2pp, Methods ~3pp,
+> Preliminary Results ~3pp, Discussion ~1pp, plus a contributions paragraph per person). This
+> mirrors the team's Google Doc — whichever one we're actually editing live, please keep the other
+> in sync (or just delete this file once the Doc is the single source of truth). Each section below
+> is either filled in, sourced from this repo's own reports and design docs, or left as a
+> `_TODO — <name>:_` placeholder for whoever owns that model/agent to fill in. Primary ownership,
+> per the README's team table: Model 1 = John, Model 2 = Yuxin, Model 3 = Shreya, Data Agent =
+> Zhiyan, agent architecture (Modeling/Evaluation/Lead Agents) = Pranav.
+
+---
+
+## 1. Introduction (~2 pages)
+
+### 1.1 Motivation and Business Problem
+
+Marketing organizations increasingly rely on predictive models to decide which customers should
+receive a campaign, whether that is a marketing email, a promotion or a coupon. The people involved
+in that decision usually sit in two separate roles: data scientists, who build and maintain the
+models, and marketers, who plan the campaigns and decide who to target, what to offer and how much
+to spend.
+
+The difficulty is that these two roles do not easily connect. A marketer planning a campaign wants
+to know which customers to target, what would happen if the offer or the budget changed, and why
+the model favors one segment over another, but a model's outputs do not answer these questions
+directly and are often hard for business users to interpret. Since marketers cannot work with the
+models themselves, each new question has to go back through a data scientist.
+
+Data scientists, on the other hand, face a problem of their own, because developing a model
+involves multiple steps, from preparing the data and building features to training and comparing
+models, and this work has to be repeated every time new data arrives or a campaign finishes. Each
+of those steps involves judgment calls that are easy to lose track of, especially when the person
+maintaining a model is not the person who originally built it.
+
+This project, sponsored by TD Bank, builds an Agentic AI Marketing Decision Lab to close this gap
+by supporting both roles, with an AI agent designed for each one. The data scientist works with a
+Data Scientist Agent, a co-engineer that keeps the models up to date as new data arrives, explains
+what changed and why, proposes what to try next, and flags anomalies when it finds something new.
+The marketer, in turn, works with a Decision Support Agent inside an interactive application, where
+they can explore campaign options and ask questions without needing to understand the models
+underneath. Since both agents sit on top of the same models, the answers a marketer receives come
+from work that a data scientist has already reviewed.
+
+### 1.2 Existing Work
+
+Direct marketing research has long used past behavior to predict who will respond to a campaign
+and to weigh that response against the cost of each mailing ([Bult & Wansbeek, 1995](https://doi.org/10.1287/mksc.14.4.378);
+[Fader, Hardie & Lee, 2005](https://doi.org/10.1509/jmkr.2005.42.4.415)), and uplift modeling goes
+one step further by estimating the change in behavior that a campaign causes, which response models
+are not designed to measure ([Radcliffe & Surry, 2011](https://stochasticsolutions.com/pdf/sig-based-up-trees.pdf);
+[Künzel et al., 2019](https://doi.org/10.1073/pnas.1804597116)). More recently, AI agents built on
+large language models have been used to automate data analysis tasks ([Guo et al., 2024](https://proceedings.mlr.press/v235/guo24b.html);
+[Hong et al., 2025](https://aclanthology.org/2025.findings-acl.1016/)). Our project brings these
+three areas together in one system, which is built around the two people who have to use it.
+
+### 1.3 Problem Statement
+
+Our goal is to show how AI can support the full analytics lifecycle, from data preparation and
+predictive modeling to decision support through an interactive application. We test this system on
+the public dunnhumby "The Complete Journey" dataset using three predictive models, which together
+tell a marketer who is likely to respond to a campaign, what that response is worth, and whether
+the campaign changed what a household bought:
+
+* **Response model (Model 1):** Predicts the probability that a mailed household redeems at least
+  one coupon from a campaign.
+* **Value model (Model 2):** Predicts how much a household that redeems will spend on the
+  campaign's products during the campaign.
+* **Uplift model (Model 3):** Estimates how much more likely a household is to buy the campaign's
+  products because it was mailed.
+
+The project seeks to answer research questions in three areas:
+
+* **Model development:** Can specialized AI agents improve the efficiency and quality of predictive
+  model development?
+* **Prediction:** How accurately can campaign response be predicted from historical retail and
+  marketing data, and which customer and campaign characteristics are most predictive?
+* **Decision support:** Can a generative AI-based Decision Support Agent improve interpretation of
+  model outputs, and does an AI-assisted platform improve business users' ability to evaluate
+  alternative marketing strategies?
+
+### 1.4 Overview
+
+We are building an end-to-end system that takes raw retail data and turns it into campaign
+decisions that a marketer can act on. On the data science side, separate agents clean the data,
+build the features, and train and evaluate the response, value and uplift models, and a data
+scientist runs and maintains all of this by working with a single Data Scientist Agent that acts
+as an interface between the scientist and all the underlying agents. On the marketing side, the
+results feed into the Decision Lab, an application where a marketer can explore campaign options
+and ask a Decision Support Agent questions in plain language. The result is one system in which a
+data scientist can keep the models up to date and a marketer can use their results directly,
+without every question having to pass between the two.
+
+---
+
+## 2. Methods (~3 pages)
+
+### 2.1 Data
+
+#### 2.1.1 Dataset and pipeline-wide preprocessing
+
+_TODO — Zhiyan (Data Agent) / Pranav (agent architecture):_ describe the dunnhumby "Complete
+Journey" source tables, the Data Agent's cleaning steps, and anything significant or non-standard
+about how raw data becomes the shared feature tables the three models build on.
+
+#### 2.1.2 Model 1 data (Campaign Response Probability)
+
+_TODO — John:_ describe Model 1's data scope and key features.
+
+#### 2.1.3 Model 2 data (Expected Financial Value)
+
+_TODO — Yuxin:_ describe Model 2's data scope and key features.
+
+#### 2.1.4 Model 3 data (True Incremental Uplift)
 
 Model 3 is scoped to TypeB/TypeC campaigns — 25 of the dataset's 30 campaigns, 3,229 treated
 (mailed) rows against 40,167 control rows, no subsampling at any stage. TypeA campaigns were
@@ -28,7 +136,17 @@ the *household's own usual store* — the store each household shopped at most b
 started — which moved it from 25 distinct values (std 0.093) to 1,240 distinct values (std 0.289),
 a real increase in the information a model can use, not a cosmetic fix.
 
-## Methods → EDA (Model 3)
+### 2.2 Exploratory Data Analysis
+
+#### 2.2.1 Model 1
+
+_TODO — John:_ key EDA patterns that guided Model 1's preprocessing/modeling choices.
+
+#### 2.2.2 Model 2
+
+_TODO — Yuxin:_ key EDA patterns that guided Model 2's preprocessing/modeling choices.
+
+#### 2.2.3 Model 3
 
 Three questions were answered directly against the full dataset before any model was trusted:
 
@@ -52,7 +170,23 @@ similar across every demographic category (19–42 percentage points), with no s
 as the spend-tier one — informative by itself: pre-campaign spend behavior predicts responsiveness
 far better than who a household is demographically.
 
-## Methods → Analytic / Modeling Methods (Model 3)
+### 2.3 Analytic / Modeling Methods
+
+#### 2.3.1 Agent architecture (Data, Feature, Modeling, Evaluation, Lead Agents)
+
+_TODO — Pranav:_ describe the agent pipeline design — how the Lead Agent coordinates the
+Data/Feature/Modeling/Evaluation Agents, the staleness/rerun logic, and how candidates get
+registered and judged consistently across models.
+
+#### 2.3.2 Model 1
+
+_TODO — John:_ modeling approach, candidates tried, what's currently in use and why.
+
+#### 2.3.3 Model 2
+
+_TODO — Yuxin:_ modeling approach, candidates tried, what's currently in use and why.
+
+#### 2.3.4 Model 3
 
 **Baseline.** A T-learner (two independently trained `RandomForestClassifier`s, one on treated
 rows, one on control) estimates uplift as `P(buy | treated) − P(buy | control)`, preferred over a
@@ -96,7 +230,21 @@ three times, and the Evaluation Agent itself flags when a check is no longer cle
 campaigns were already read 2 time(s)... this is no longer a clean test"*) — a deliberate choice to
 let the system say "I'm not sure anymore" rather than keep re-using a shrinking resource.
 
-## Preliminary Results → Evaluation (Model 3)
+---
+
+## 3. Preliminary Results (~3 pages)
+
+### 3.1 Evaluation
+
+#### 3.1.1 Model 1
+
+_TODO — John:_ metrics used and why.
+
+#### 3.1.2 Model 2
+
+_TODO — Yuxin:_ metrics used and why.
+
+#### 3.1.3 Model 3
 
 Standard ROC-AUC doesn't apply to uplift: a household can't be observed both mailed and unmailed,
 so there's no ground-truth label to score against directly. Model 3 is instead evaluated on
@@ -105,10 +253,19 @@ because the pooled, unweighted version mostly measures who the retailer chose to
 the mailer caused. Alongside it, an **E-value** (VanderWeele & Ding, 2017) quantifies how strong an
 unmeasured confounder's association with both mailing and buying would need to be to fully explain
 the observed effect away — currently **1.35**, meaning a fairly weak hidden confounder could do it.
-This gives the project's "predictive, not causal" caveat (noted in the Limitations section) a
-concrete number instead of a disclaimer.
+This gives the project's "predictive, not causal" caveat a concrete number instead of a disclaimer.
 
-## Preliminary Results → Results Presentation (Model 3)
+### 3.2 Results Presentation
+
+#### 3.2.1 Model 1
+
+_TODO — John:_ results table/figures, qualitative observations, strengths and weaknesses.
+
+#### 3.2.2 Model 2
+
+_TODO — Yuxin:_ results table/figures, qualitative observations, strengths and weaknesses.
+
+#### 3.2.3 Model 3
 
 | Candidate | What changed | Own score | Open-campaign gap vs. owner | Locked-campaign gap vs. owner |
 |---|---|---|---|---|
@@ -135,8 +292,28 @@ ambiguous locked-campaign result triggered a `human_needed` verdict rather than 
 the system correctly escalating instead of guessing. Figures:
 `reports/figures/model3_uplift_qini_curve.png`, `reports/figures/model3_qini_curve.png`.
 
-## Discussion → Future Work (Model 3)
+### 3.3 App or Tool
 
+_TODO — Shreya (next week):_ the Decision Lab marketer-facing Streamlit app and "Ask the Decision
+Lab" chat agent (grounded Q&A over all three models, Gemini via Vertex AI) were built this week but
+are being held out of this report and written up for next week instead, once there's been time to
+test them properly. Leaving this placeholder so the section header isn't missing from the skeleton.
+
+---
+
+## 4. Discussion (~1 page)
+
+### 4.1 Conclusion
+
+_TODO — whole team:_ summarize key takeaways across all three models and what's been achieved so
+far. Suggest drafting this last, once every model's section above is filled in.
+
+### 4.2 Future Work
+
+_TODO — John (Model 1), Yuxin (Model 2), Pranav (agents), Zhiyan (Data Agent):_ planned next steps
+through end of April, justified by this report's observations.
+
+**Model 3:**
 - `owner_x_learner_confound_aware` remains a tracked, promising candidate (+0.0034 open-campaign
   gap vs. the X-learner in use, best own-score of anything tried) but is deliberately not
   promoted — its locked-campaign check has already been read three times, and a fourth look was
@@ -149,9 +326,13 @@ the system correctly escalating instead of guessing. Figures:
   modeling discipline over repeated iteration, not just whether they can produce a single good
   result.
 
-## Contribution paragraph (for the "each member's contributions" section)
+---
 
-> Shreya Shetty led Model 3 (True Incremental Uplift) end to end: scoping the problem to
+## 5. Contributions
+
+_One paragraph per member, describing their contributions to **this report**._
+
+> **Shreya Shetty** led Model 3 (True Incremental Uplift) end to end: scoping the problem to
 > TypeB/TypeC campaigns, building and iterating the T-learner baseline, diagnosing and fixing the
 > train/evaluate mismatch against the evaluation pipeline's propensity-weighted Qini metric, and
 > running a disciplined head-to-head comparison of five causal-inference approaches
@@ -160,3 +341,11 @@ the system correctly escalating instead of guessing. Figures:
 > built the sure-things classifier as a complementary targeting-deprioritization signal, added and
 > then substantially improved the `campaign_promo_share` confounder feature, and reported an
 > E-value sensitivity check alongside the model's existing calibration diagnostics.
+
+> _TODO — **Yuxin Cai**:_ your contributions to this report.
+
+> _TODO — **Pranav Jain**:_ your contributions to this report.
+
+> _TODO — **John Won**:_ your contributions to this report.
+
+> _TODO — **Zhiyan Yang**:_ your contributions to this report.
