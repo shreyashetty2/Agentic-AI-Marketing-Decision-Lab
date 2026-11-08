@@ -676,7 +676,11 @@ E-value sensitivity check alongside the model's existing calibration diagnostics
 she built Feature Agent 2B, the shared step that turns Feature Agent 2A's one combined table into
 a clean, leakage-checked table for each of the three models, and did the first infrastructure
 work toward deploying the Lead Agent on GCP (Dockerfile, entrypoint script, and the Cloud Run
-deployment plan), the groundwork the Decision Lab app is being built on top of.
+deployment plan), the groundwork the Decision Lab app is being built on top of. She also set up and
+maintained this report document itself: drafted the original shared skeleton with a placeholder
+per section so the rest of the team could fill in their own parts, then merged everyone's
+sections into the final draft, numbered and captioned every table and figure consistently across
+the whole document, and embedded the Model 3 result charts as actual images.
 
 **Yuxin Cai** led Model 2 (Expected Financial Value). She scoped it as a household-by-campaign
 regression on TypeB/C redemptions, confirmed the `SALES_VALUE` definition of the target and
