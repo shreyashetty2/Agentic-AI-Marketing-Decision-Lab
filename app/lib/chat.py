@@ -7,10 +7,13 @@ docs/agent_design/gcp_deployment.md's plan for the real front door. Needs `gclou
 login` once (ADC), the same login already used for this project's Cloud Run deployment.
 """
 import os
+import re
 
 import streamlit as st
 
 from lib.data import load_predictions, load_run_summary, load_sure_things, step, with_demographics
+
+HOUSEHOLD_RE = re.compile(r"household\D{0,6}(\d+)", re.IGNORECASE)
 
 GCP_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "capstone-decision-lab")
 GCP_LOCATION = os.environ.get("GOOGLE_CLOUD_LOCATION", "global")
@@ -111,19 +114,55 @@ def cached_context() -> str:
     return build_context()
 
 
-def ask(history: list[dict], question: str) -> str:
+def _household_lookup(question: str) -> str:
+    """If the question names a specific household (e.g. "household 323"), pull its actual rows from
+    all three models' predictions -- the top-10 lists in build_context() won't cover most IDs, so
+    without this the model would have to say "not available" for almost any specific household asked
+    about. Still grounded: only real rows, nothing computed here."""
+    match = HOUSEHOLD_RE.search(question)
+    if not match:
+        return ""
+    key = int(match.group(1))
+    lines = [f"Specific household requested in this message: household {key}."]
+    found = False
+    for model, label, fmt in ((1, "redemption-likelihood score", "{:.4f}"),
+                              (2, "forecast spend", "${:.2f}"), (3, "uplift score", "{:.4f}")):
+        rows = load_predictions(model)
+        rows = rows[rows["household_key"] == key]
+        if rows.empty:
+            continue
+        found = True
+        lines.append(f"Model {model} ({label}): " + "; ".join(
+            f"campaign {r.campaign}: {fmt.format(r.score)}" for r in rows.itertuples()))
+    if not found:
+        lines.append("No record of this household in any model's mailed households -- say so plainly, "
+                      "don't guess at a score.")
+    return "\n".join(lines)
+
+
+def ask(history: list[dict], question: str) -> tuple[str, str]:
     """One call: the full grounding context as the system instruction, the chat history, the new
     question. No tool use, no retries -- if the model can't answer from the context, it says so, per
     the system prompt (verified directly: asked a fact-check question outside given context, it
-    refused rather than guessing)."""
+    refused rather than guessing). Returns (answer, the exact context block used) so the page can show
+    it for transparency.
+
+    thinking_level="low": verified this still holds the grounding rule (refuses what it's not given)
+    while cutting a ~3x latency difference from the model's default extended thinking."""
     from google import genai
     from google.genai import types
 
     client = genai.Client(vertexai=True, project=GCP_PROJECT, location=GCP_LOCATION)
+    context = cached_context()
+    household = _household_lookup(question)
+    if household:
+        context = f"{context}\n\n{household}"
     contents = [types.Content(role="model" if h["role"] == "assistant" else "user",
                               parts=[types.Part(text=h["content"])]) for h in history]
     contents.append(types.Content(role="user", parts=[types.Part(text=question)]))
     resp = client.models.generate_content(
         model=CHAT_MODEL, contents=contents,
-        config=types.GenerateContentConfig(system_instruction=f"{SYSTEM_PROMPT}\n\n--- Facts you may use ---\n{cached_context()}"))
-    return resp.text
+        config=types.GenerateContentConfig(
+            system_instruction=f"{SYSTEM_PROMPT}\n\n--- Facts you may use ---\n{context}",
+            thinking_config=types.ThinkingConfig(thinking_level="low")))
+    return resp.text, context
