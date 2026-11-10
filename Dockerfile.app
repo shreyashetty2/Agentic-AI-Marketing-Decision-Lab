@@ -14,6 +14,7 @@ COPY src/ src/
 COPY app/ app/
 COPY .streamlit/ .streamlit/
 COPY scripts/app_entrypoint.sh scripts/app_entrypoint.sh
+COPY scripts/sync_processed.py scripts/sync_processed.py
 RUN chmod +x scripts/app_entrypoint.sh
 
 ENTRYPOINT ["scripts/app_entrypoint.sh"]
