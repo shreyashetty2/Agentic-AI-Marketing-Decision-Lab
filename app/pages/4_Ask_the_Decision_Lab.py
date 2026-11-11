@@ -17,9 +17,9 @@ col_title.title("Ask the Decision Lab")
 st.caption(
     "Ask about who to target, which segments respond best, what to expect to spend, how confident a "
     "result is, or about a specific household (e.g. \"what about household 323?\"). Answers are "
-    "grounded only in numbers the Modeling and Evaluation Agents already computed for Model 1 "
-    "(redemption likelihood), Model 2 (spend forecast), and Model 3 (uplift and sure things) -- it "
-    "will say so rather than guess at anything it wasn't given."
+    "grounded only in numbers the Modeling and Evaluation Agents already computed for Redemption "
+    "Likelihood, Spend Forecast, and Campaign Uplift (plus sure things) -- it will say so rather than "
+    "guess at anything it wasn't given."
 )
 
 if not credentials_ok():
@@ -48,9 +48,9 @@ for i, turn in enumerate(st.session_state.chat_history):
                 st.text(st.session_state.chat_contexts[i])
 
 examples = [
-    "Which households should we target with Model 3?",
-    "How much should we expect a mailed household to spend, per Model 2?",
-    "Which population segment redeems the most, per Model 1?",
+    "Which households should we target for the most uplift from mailing?",
+    "How much should we expect a mailed household to spend?",
+    "Which population segment redeems the most?",
 ]
 if not st.session_state.chat_history:
     st.caption("Try asking:")
@@ -60,7 +60,7 @@ if not st.session_state.chat_history:
             st.session_state.pending = ex
             st.rerun()
 
-question = st.chat_input("Ask about Model 1, 2, or 3...") or st.session_state.pop("pending", None)
+question = st.chat_input("Ask about redemption, spend, or uplift...") or st.session_state.pop("pending", None)
 if question:
     st.session_state.chat_history.append({"role": "user", "content": question})
     with st.spinner("Checking the numbers..."):
