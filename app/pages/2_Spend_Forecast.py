@@ -1,4 +1,4 @@
-"""Model 2: how much a mailed household is forecast to spend on the campaign's products."""
+"""Spend Forecast: how much a mailed household is forecast to spend on the campaign's products."""
 import sys
 from pathlib import Path
 
@@ -9,9 +9,9 @@ from lib.charts import population_breakdown, score_histogram  # noqa: E402
 from lib.data import load_predictions, load_run_summary, step, with_demographics  # noqa: E402
 from lib.style import inject  # noqa: E402
 
-st.set_page_config(page_title="Model 2: Spend forecast", layout="wide")
+st.set_page_config(page_title="Spend Forecast", layout="wide")
 inject()
-st.title("Model 2: Spend forecast")
+st.title("Spend Forecast")
 
 summary = load_run_summary()
 modeling, evaluation = step(summary, "modeling", 2), step(summary, "evaluation", 2)
