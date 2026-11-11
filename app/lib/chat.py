@@ -11,7 +11,7 @@ import re
 
 import streamlit as st
 
-from lib.data import load_predictions, load_run_summary, load_sure_things, step, with_demographics
+from lib.data import MODEL_NAMES, load_predictions, load_run_summary, load_sure_things, step, with_demographics
 
 HOUSEHOLD_RE = re.compile(r"household\D{0,6}(\d+)", re.IGNORECASE)
 
@@ -19,13 +19,16 @@ GCP_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "capstone-decision-lab")
 GCP_LOCATION = os.environ.get("GOOGLE_CLOUD_LOCATION", "global")
 CHAT_MODEL = "gemini-3.8-flash"
 
-SYSTEM_PROMPT = """You are the Decision Lab, answering a marketing stakeholder's questions about three models \
-built on grocery-chain loyalty data: Model 1 (who is likely to redeem a mailed coupon), Model 2 (how much a \
-mailed household is forecast to spend on the campaign's products), and Model 3 (who mailing actually persuades \
-to buy more -- "uplift" -- plus a separate tool that flags likely-wasted sends among households already \
-mailed, called "sure things").
+SYSTEM_PROMPT = """You are the Decision Lab, answering a marketing stakeholder's questions about three tools \
+built on grocery-chain loyalty data: Redemption Likelihood (who is likely to redeem a mailed coupon), Spend \
+Forecast (how much a mailed household is forecast to spend on the campaign's products), and Campaign Uplift \
+(who mailing actually persuades to buy more -- "uplift" -- plus a separate tool that flags likely-wasted \
+sends among households already mailed, called "sure things").
 
 Rules, no exceptions:
+- Never say "Model 1", "Model 2", "Model 3", or any other internal model/tool number -- the stakeholder you're \
+talking to doesn't know or care about that numbering. Always refer to the tools by name: Redemption Likelihood, \
+Spend Forecast, Campaign Uplift, sure things.
 - Answer ONLY from the facts given to you below. Never compute, estimate, or guess a number that is not \
 already there. If the answer needs a number nobody has computed, say plainly that it is not available yet \
 and name what's closest (e.g. "I don't have that broken out by campaign, but across all campaigns the uplift \
@@ -50,10 +53,11 @@ def credentials_ok() -> bool:
 
 
 def _model_facts(summary: dict, model: int) -> str:
+    name = MODEL_NAMES[model]
     modeling, evaluation = step(summary, "modeling", model), step(summary, "evaluation", model)
     facts = evaluation["facts"]
     lines = [
-        f"Model {model} -- the model in use: {modeling['current_model']}",
+        f"{name} -- the model in use: {modeling['current_model']}",
         f"Trained on {modeling['trained_on']['campaigns']} finished campaigns ({modeling['trained_on']['rows']:,} rows).",
         "Relies most on: " + "; ".join(f"{c['meaning']} ({c['share']:.0%})" for c in modeling.get("leans_on", [])),
         f"Score: {facts['current_score']}",
@@ -73,7 +77,8 @@ def _model_facts(summary: dict, model: int) -> str:
 
 def _population_facts(model: int, score_label: str, fmt: str = "{:.4f}") -> str:
     preds = with_demographics(load_predictions(model))
-    lines = [f"Population breakdown for Model {model} ({score_label}), households with a demographic record on file:"]
+    name = MODEL_NAMES[model]
+    lines = [f"Population breakdown for {name} ({score_label}), households with a demographic record on file:"]
     for col in ("classification_1", "classification_4", "homeowner_desc", "kid_category_desc"):
         if col not in preds.columns:
             continue
@@ -101,7 +106,8 @@ def build_context() -> str:
         _model_facts(summary, 3),
         _population_facts(3, "uplift score"),
         "",
-        "Model 3's sure-things classifier (flags likely-wasted sends among already-mailed households):",
+        f"The sure-things classifier -- a separate tool alongside {MODEL_NAMES[3]} that flags likely-wasted "
+        "sends among already-mailed households:",
         f"AUC {sure['auc']:.3f}; its most confident fifth is right {sure['top_fifth_rate']:.1%} of the time, "
         f"versus a {sure['base_rate']:.1%} base rate; trained on {sure['n_train']:,}, tested on {sure['n_test']:,} households.",
         "What it relies on most: " + ", ".join(f"{k} ({v:.0%})" for k, v in sure["top_features"].items()),
@@ -132,7 +138,7 @@ def _household_lookup(question: str) -> str:
         if rows.empty:
             continue
         found = True
-        lines.append(f"Model {model} ({label}): " + "; ".join(
+        lines.append(f"{MODEL_NAMES[model]} ({label}): " + "; ".join(
             f"campaign {r.campaign}: {fmt.format(r.score)}" for r in rows.itertuples()))
     if not found:
         lines.append("No record of this household in any model's mailed households -- say so plainly, "
