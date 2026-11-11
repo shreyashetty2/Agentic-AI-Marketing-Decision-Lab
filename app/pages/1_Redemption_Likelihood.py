@@ -1,4 +1,4 @@
-"""Model 1: who is likely to redeem a coupon, so a marketer can mail the most likely first."""
+"""Redemption Likelihood: who is likely to redeem a coupon, so a marketer can mail the most likely first."""
 import sys
 from pathlib import Path
 
@@ -9,9 +9,9 @@ from lib.charts import population_breakdown, score_histogram  # noqa: E402
 from lib.data import load_predictions, load_run_summary, step, with_demographics  # noqa: E402
 from lib.style import inject  # noqa: E402
 
-st.set_page_config(page_title="Model 1: Redemption", layout="wide")
+st.set_page_config(page_title="Redemption Likelihood", layout="wide")
 inject()
-st.title("Model 1: Redemption likelihood")
+st.title("Redemption Likelihood")
 
 summary = load_run_summary()
 modeling, evaluation = step(summary, "modeling", 1), step(summary, "evaluation", 1)
