@@ -296,6 +296,10 @@ cp .env.example .env              # then fill in API keys
 ```bash
 python src/preprocessing/ingest.py       # Step 1, Data Agent: clean tables
 python src/preprocessing/build_spine.py  # Step 1, Data Agent: household x campaign table
+python src/preprocessing/check_integrity.py   # Step 1, Data Agent: cross-table integrity checks
+python src/preprocessing/outlier_rules.py     # Step 1, Data Agent: data-derived outlier cut-offs
+python src/preprocessing/apply_decisions.py   # Step 1, Data Agent: fix/flag/escalate decisions + decision log
+python src/preprocessing/make_report.py       # Step 1, Data Agent: data quality report
 python src/features/build_2a.py          # Step 2A, Feature Agent: shared feature table + run report
 python src/features/build_2b.py          # Step 2B, Feature Agent: one table per model + run report
 python src/modeling/model1_baseline.py   # Step 3, Modeling Agent: Model 1 (response) classifier baseline
