@@ -26,6 +26,7 @@ pytest
 streamlit
 google-genai       # Ask the Decision Lab chat page, via Vertex AI (Gemini) -- billed to GCP credits,
                    # auth via `gcloud auth application-default login`, no API key
+google-cloud-storage  # scripts/sync_processed.py, pulling data/processed down when hosted
 
 # --- To add once the team decides (API) ---
 # fastapi

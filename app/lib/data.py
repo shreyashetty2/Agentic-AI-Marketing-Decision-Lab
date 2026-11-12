@@ -9,6 +9,12 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parents[2]
 PROCESSED = ROOT / "data/processed"
 
+MODEL_NAMES = {
+    1: "Redemption Likelihood",
+    2: "Spend Forecast",
+    3: "Campaign Uplift",
+}
+
 MODEL_BLURBS = {
     1: "Ranks mailed households by how likely they are to redeem a coupon, so a marketer can mail the "
        "most likely first and forecast redemptions.",

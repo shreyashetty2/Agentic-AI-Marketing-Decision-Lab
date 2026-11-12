@@ -10,12 +10,16 @@ from lib.style import inject  # noqa: E402
 
 st.set_page_config(page_title="Ask the Decision Lab", layout="wide")
 inject()
-st.title("Ask the Decision Lab")
+
+col_title, col_clear = st.columns([5, 1])
+col_title.title("Ask the Decision Lab")
+
 st.caption(
-    "Ask about who to target, which segments respond best, what to expect to spend, or how confident "
-    "a result is. Answers are grounded only in numbers the Modeling and Evaluation Agents already "
-    "computed for Model 1 (redemption likelihood), Model 2 (spend forecast), and Model 3 (uplift and "
-    "sure things) -- it will say so rather than guess at anything it wasn't given."
+    "Ask about who to target, which segments respond best, what to expect to spend, how confident a "
+    "result is, or about a specific household (e.g. \"what about household 323?\"). Answers are "
+    "grounded only in numbers the Modeling and Evaluation Agents already computed for Redemption "
+    "Likelihood, Spend Forecast, and Campaign Uplift (plus sure things) -- it will say so rather than "
+    "guess at anything it wasn't given."
 )
 
 if not credentials_ok():
@@ -28,15 +32,25 @@ if not credentials_ok():
 
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+if "chat_contexts" not in st.session_state:
+    st.session_state.chat_contexts = {}
 
-for turn in st.session_state.chat_history:
+if col_clear.button("Clear", use_container_width=True, disabled=not st.session_state.chat_history):
+    st.session_state.chat_history = []
+    st.session_state.chat_contexts = {}
+    st.rerun()
+
+for i, turn in enumerate(st.session_state.chat_history):
     with st.chat_message(turn["role"]):
         st.markdown(turn["content"])
+        if turn["role"] == "assistant" and i in st.session_state.chat_contexts:
+            with st.expander("See the facts used for this answer"):
+                st.text(st.session_state.chat_contexts[i])
 
 examples = [
-    "Which households should we target with Model 3?",
-    "How much should we expect a mailed household to spend, per Model 2?",
-    "Which population segment redeems the most, per Model 1?",
+    "Which households should we target for the most uplift from mailing?",
+    "How much should we expect a mailed household to spend?",
+    "Which population segment redeems the most?",
 ]
 if not st.session_state.chat_history:
     st.caption("Try asking:")
@@ -46,16 +60,19 @@ if not st.session_state.chat_history:
             st.session_state.pending = ex
             st.rerun()
 
-question = st.chat_input("Ask about Model 1, 2, or 3...") or st.session_state.pop("pending", None)
+question = st.chat_input("Ask about redemption, spend, or uplift...") or st.session_state.pop("pending", None)
 if question:
     st.session_state.chat_history.append({"role": "user", "content": question})
-    with st.chat_message("user"):
-        st.markdown(question)
-    with st.chat_message("assistant"):
-        with st.spinner("Checking the numbers..."):
-            try:
-                answer = ask(st.session_state.chat_history[:-1], question)
-            except Exception as e:
-                answer = f"Couldn't reach the model ({type(e).__name__}: {e})."
-        st.markdown(answer)
+    with st.spinner("Checking the numbers..."):
+        try:
+            answer, context_used = ask(st.session_state.chat_history[:-1], question)
+        except Exception as e:
+            answer, context_used = f"Couldn't reach the model ({type(e).__name__}: {e}).", None
+    answer_index = len(st.session_state.chat_history)
     st.session_state.chat_history.append({"role": "assistant", "content": answer})
+    if context_used:
+        st.session_state.chat_contexts[answer_index] = context_used
+    # A fresh rerun, not just appending in place: the Clear button's `disabled` state and the
+    # examples' visibility above are already rendered by the time this block runs, so without a
+    # rerun they'd show stale (pre-question) state until some other interaction forced a new pass.
+    st.rerun()

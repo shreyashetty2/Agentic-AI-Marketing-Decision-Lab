@@ -1,5 +1,5 @@
-"""Model 3: who mailing actually persuades (uplift), plus the sure-things classifier that flags likely
-wasted sends among households who were mailed."""
+"""Campaign Uplift: who mailing actually persuades (uplift), plus the sure-things classifier that flags
+likely wasted sends among households who were mailed."""
 import sys
 from pathlib import Path
 
@@ -10,9 +10,9 @@ from lib.charts import feature_importance_chart, population_breakdown, score_his
 from lib.data import load_predictions, load_run_summary, load_sure_things, step, with_demographics  # noqa: E402
 from lib.style import inject, status_badge  # noqa: E402
 
-st.set_page_config(page_title="Model 3: Uplift", layout="wide")
+st.set_page_config(page_title="Campaign Uplift", layout="wide")
 inject()
-st.title("Model 3: Uplift and persuadables")
+st.title("Campaign Uplift (persuadables)")
 
 summary = load_run_summary()
 modeling, evaluation = step(summary, "modeling", 3), step(summary, "evaluation", 3)

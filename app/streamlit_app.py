@@ -8,7 +8,7 @@ from pathlib import Path
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.data import MODEL_BLURBS, load_run_summary, step  # noqa: E402
+from lib.data import MODEL_BLURBS, MODEL_NAMES, load_run_summary, step  # noqa: E402
 from lib.style import inject, status_badge  # noqa: E402
 
 st.set_page_config(page_title="Decision Lab", page_icon=":bar_chart:", layout="wide")
@@ -34,7 +34,7 @@ for model in (1, 2, 3):
         continue
 
     with st.container(border=True):
-        st.subheader(f"Model {model}")
+        st.subheader(MODEL_NAMES[model])
         st.caption(MODEL_BLURBS[model])
 
         col1, col2 = st.columns(2)
@@ -61,5 +61,5 @@ for model in (1, 2, 3):
             if evaluation.get("handled"):
                 st.caption(evaluation["handled"])
 
-st.caption("Pages: Model 1 (redemption), Model 2 (spend forecast), Model 3 (uplift, persuadables and "
+st.caption("Pages: Redemption Likelihood, Spend Forecast, Campaign Uplift (persuadables and "
            "population breakdowns), and Ask the Decision Lab (chat) — in the sidebar.")
