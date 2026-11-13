@@ -57,6 +57,23 @@ def load_sure_things() -> dict:
     return json.loads((PROCESSED / "model3_sure_things.json").read_text())
 
 
+@st.cache_data(ttl=60)
+def load_campaign_desc() -> pd.DataFrame:
+    """Real campaign metadata (not a model output): each campaign's type (A/B/C, the dataset's own
+    grouping -- no finer description than that was ever given) and how many days it ran. START_DAY/
+    END_DAY are the dataset's own anonymised, sequential day-numbers, not real calendar dates -- there
+    is no month, season, or actual date anywhere in this dataset (checked: neither campaign_desc nor
+    transaction_data carries one), so duration and type are the only real facts about timing we have."""
+    df = pd.read_parquet(PROCESSED / "campaign_desc.parquet")
+    df = df.rename(columns={"CAMPAIGN": "campaign", "DESCRIPTION": "campaign_type"})
+    # Raw file spells this "TypeA"/"TypeB"/"TypeC"; the modeling agent's own predictions already
+    # normalise it to a bare "A"/"B"/"C" -- match that so the chatbot never sees two spellings of
+    # the same thing.
+    df["campaign_type"] = df["campaign_type"].str.removeprefix("Type")
+    df["duration_days"] = df["END_DAY"] - df["START_DAY"]
+    return df[["campaign", "campaign_type", "duration_days"]]
+
+
 # Exact wording from src/features/feature_2a_spec.yaml -- the team anonymised and deliberately did not
 # claim what classification_2/3/4/5 represent (e.g. never assumed classification_3 means income), so
 # this page doesn't either.
