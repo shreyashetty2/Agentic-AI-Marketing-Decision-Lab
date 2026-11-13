@@ -11,9 +11,11 @@ import re
 
 import streamlit as st
 
-from lib.data import MODEL_NAMES, load_predictions, load_run_summary, load_sure_things, step, with_demographics
+from lib.data import (MODEL_NAMES, load_campaign_desc, load_predictions, load_run_summary, load_sure_things,
+                       step, with_demographics)
 
 HOUSEHOLD_RE = re.compile(r"household\D{0,6}(\d+)", re.IGNORECASE)
+CAMPAIGN_RE = re.compile(r"campaign\D{0,6}(\d+)", re.IGNORECASE)
 
 GCP_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "capstone-decision-lab")
 GCP_LOCATION = os.environ.get("GOOGLE_CLOUD_LOCATION", "global")
@@ -37,6 +39,14 @@ score is...").
 score, meaning how many extra buyers this household contributes if mailed, versus not mailing them").
 - Never say a model "works" or "is better" more strongly than the facts support. If a result is "could be \
 luck" or the verdict is "human needed", say that plainly rather than rounding it up to a confident claim.
+- This dataset has NO real calendar information anywhere -- no month, season, or actual date, only an \
+anonymized sequential day-count and each campaign's Type (A, B, or C). If asked what month, season, or \
+"time of year" is best to mail, say plainly that this data has no real calendar dates to answer that from \
+-- never guess a season. You CAN answer from campaign duration (in days) and campaign Type.
+- If asked about a new or upcoming campaign that isn't in the historical list (e.g. "we're planning a new \
+Type A campaign, who should we target"), you cannot score it directly -- nobody has run the models on it. \
+Answer by analogy: use the historical performance of past campaigns of the *same Type* as the closest \
+available guide, and say explicitly that this is an analogy to similar past campaigns, not a new prediction.
 - Short, direct answers. A sentence or two for a simple question; a short list only when the question asks \
 for several things (e.g. "which segments").
 """
@@ -93,24 +103,56 @@ def _population_facts(model: int, score_label: str, fmt: str = "{:.4f}") -> str:
     return "\n".join(lines)
 
 
+def _campaign_calendar_facts() -> str:
+    """Every campaign's real type (A/B/C) and real duration in days -- raw data, not a model output, so
+    this covers all 30 campaigns whether or not they were ever modeled. No real calendar dates exist
+    anywhere in this dataset (checked both campaign_desc and transaction_data), so this is the only
+    honest answer to "when"/"how long" questions."""
+    desc = load_campaign_desc().sort_values("campaign")
+    lines = ["Campaign calendar (real data, every campaign, day-numbers are anonymised/sequential -- "
+             "NOT real calendar dates, there is no month or season anywhere in this dataset):"]
+    lines += [f"- campaign {r.campaign}: Type {r.campaign_type}, runs {r.duration_days} days"
+              for r in desc.itertuples()]
+    return "\n".join(lines)
+
+
+def _campaign_type_facts(model: int, score_label: str, fmt: str = "{:.4f}") -> str:
+    """Historical performance grouped by campaign Type (A/B/C) -- the closest honest answer to "a new
+    campaign of type X is coming, who should we target": an analogy to past campaigns of that same
+    type, built only from scores the models already computed, never a new prediction."""
+    preds = load_predictions(model)
+    name = MODEL_NAMES[model]
+    lines = [f"{name} ({score_label}) by campaign Type, for comparing a new campaign to similar past ones:"]
+    for campaign_type, group in preds.groupby("campaign_type"):
+        campaigns = sorted(group["campaign"].unique().tolist())
+        lines.append(f"- Type {campaign_type} ({len(campaigns)} past campaigns: {campaigns}): "
+                      f"average {score_label} = {fmt.format(group['score'].mean())}")
+    return "\n".join(lines)
+
+
 def build_context() -> str:
     summary = load_run_summary()
     sure = load_sure_things()
     parts = [
         _model_facts(summary, 1),
         _population_facts(1, "redemption-likelihood score"),
+        _campaign_type_facts(1, "redemption-likelihood score"),
         "",
         _model_facts(summary, 2),
         _population_facts(2, "forecast spend", fmt="${:.2f}"),
+        _campaign_type_facts(2, "forecast spend", fmt="${:.2f}"),
         "",
         _model_facts(summary, 3),
         _population_facts(3, "uplift score"),
+        _campaign_type_facts(3, "uplift score"),
         "",
         f"The sure-things classifier -- a separate tool alongside {MODEL_NAMES[3]} that flags likely-wasted "
         "sends among already-mailed households:",
         f"AUC {sure['auc']:.3f}; its most confident fifth is right {sure['top_fifth_rate']:.1%} of the time, "
         f"versus a {sure['base_rate']:.1%} base rate; trained on {sure['n_train']:,}, tested on {sure['n_test']:,} households.",
         "What it relies on most: " + ", ".join(f"{k} ({v:.0%})" for k, v in sure["top_features"].items()),
+        "",
+        _campaign_calendar_facts(),
     ]
     return "\n".join(parts)
 
