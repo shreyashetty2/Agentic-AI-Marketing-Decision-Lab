@@ -11,8 +11,9 @@ import re
 
 import streamlit as st
 
-from lib.data import (MODEL_NAMES, load_campaign_desc, load_predictions, load_run_summary, load_sure_things,
-                       step, with_demographics)
+from lib.data import (MODEL_NAMES, load_campaign_desc, load_campaign_products, load_model_features,
+                       load_predictions, load_product_redemption_summary, load_run_summary,
+                       load_sure_things, step, with_demographics)
 
 HOUSEHOLD_RE = re.compile(r"household\D{0,6}(\d+)", re.IGNORECASE)
 CAMPAIGN_RE = re.compile(r"campaign\D{0,6}(\d+)", re.IGNORECASE)
@@ -47,6 +48,17 @@ anonymized sequential day-count and each campaign's Type (A, B, or C). If asked 
 Type A campaign, who should we target"), you cannot score it directly -- nobody has run the models on it. \
 Answer by analogy: use the historical performance of past campaigns of the *same Type* as the closest \
 available guide, and say explicitly that this is an analogy to similar past campaigns, not a new prediction.
+- You're talking to someone who may have zero background in this project -- explain plainly what things \
+mean using the glossary given to you below (age group, household size, campaign, uplift, etc.), including \
+being upfront about what is genuinely NOT known: some demographic labels in this dataset (see the glossary) \
+were anonymised at the source with no documented real-world meaning -- if asked what one of those actually \
+represents (e.g. income, education), say plainly that this anonymised dataset never revealed that, and do \
+not guess what it might be.
+- When discussing "the model" behind any tool, be specific, never generic: name the actual algorithm (e.g. \
+"random forest", "x_learner") AND, if asked what it's built from, list the literal input columns given to \
+you below -- never just say "a model" or "some data" without naming what's actually there.
+- If asked what products a specific campaign covers, use the real product categories given to you below for \
+that campaign -- never guess at what a campaign might be selling.
 - Short, direct answers. A sentence or two for a simple question; a short list only when the question asks \
 for several things (e.g. "which segments").
 """
@@ -62,6 +74,46 @@ def credentials_ok() -> bool:
         return False
 
 
+def _glossary_facts() -> str:
+    """Plain-language definitions for someone with zero background, and an honest line on what this
+    anonymised dataset genuinely does not reveal -- checked directly against src/features/feature_2a_spec.yaml
+    and the raw hh_demographic file: classification_2 is literally "X"/"Y"/"Z", classification_3 is
+    "Level1".."Level12", classification_5 is "Group1".."Group6" in the source data itself, with no
+    documented real-world meaning anywhere in this project. Never guess what those represent (e.g. income,
+    education) -- they are not used anywhere in this app precisely because nobody knows what they mean."""
+    return "\n".join([
+        "Glossary (plain-language terms a newcomer would need):",
+        "- Campaign: a single coupon-mailing promotion, covering specific real products, run over some "
+        "number of days (see the campaign calendar below). Each campaign has a Type (A, B, or C) -- the "
+        "dataset's own grouping, no finer description than that exists.",
+        "- Redemption: a household used the mailed coupon on a real purchase.",
+        "- Uplift: how many EXTRA buyers a household contributes if mailed, compared to not mailing them -- "
+        "not just whether they buy, but whether mailing is what caused it.",
+        "- Sure things: households who would likely have bought anyway, coupon or not -- mailing them is a "
+        "likely-wasted send.",
+        "- Age Group (1 through 6): a real age grouping, ordered, but the exact age ranges and which end is "
+        "older were stripped from this anonymised dataset -- not knowable from what's here.",
+        "- Household size (1, 2, 3, 4, or 5+): the number of people in the household.",
+        "- Homeowner status / kids in the household: plain, not anonymised -- exactly what they say.",
+        "- Other demographic labels this dataset carries (not used anywhere in this app): some are "
+        "anonymised with NO documented real-world meaning at all -- not income, not education, nothing "
+        "knowable. If asked what one of those might represent, say plainly it's not known, never guess.",
+    ])
+
+
+def _wasted_products_facts() -> str:
+    """Real products (not a model output, the team's own product-level analysis), for "what products
+    are the worst sends" style questions -- the products most often mailed to a household that never
+    redeemed, among products seen in at least 2 campaigns (1-campaign rows are too thin to generalise)."""
+    df = load_product_redemption_summary()
+    df = df[df["n_campaigns"] >= 2].nlargest(8, "pct_without_redemption")
+    lines = ["Real products most often sent to a household that never redeemed the coupon (own analysis, "
+              "not a model score -- useful for which products to be cautious mailing):"]
+    lines += [f"- {r.commodity_desc} ({r.sub_commodity_desc}, {r.brand}): no redemption {r.pct_without_redemption:.0f}% "
+              f"of the time, across {r.n_campaigns} campaigns" for r in df.itertuples()]
+    return "\n".join(lines)
+
+
 def _model_facts(summary: dict, model: int) -> str:
     name = MODEL_NAMES[model]
     modeling, evaluation = step(summary, "modeling", model), step(summary, "evaluation", model)
@@ -69,6 +121,7 @@ def _model_facts(summary: dict, model: int) -> str:
     lines = [
         f"{name} -- the model in use: {modeling['current_model']}",
         f"Trained on {modeling['trained_on']['campaigns']} finished campaigns ({modeling['trained_on']['rows']:,} rows).",
+        "Built from these exact input columns (not a generic count): " + ", ".join(load_model_features(model)),
         "Relies most on: " + "; ".join(f"{c['meaning']} ({c['share']:.0%})" for c in modeling.get("leans_on", [])),
         f"Score: {facts['current_score']}",
         f"Versus the simple rule: {facts['vs_simple_rule']}",
@@ -134,6 +187,8 @@ def build_context() -> str:
     summary = load_run_summary()
     sure = load_sure_things()
     parts = [
+        _glossary_facts(),
+        "",
         _model_facts(summary, 1),
         _population_facts(1, "redemption-likelihood score"),
         _campaign_type_facts(1, "redemption-likelihood score"),
@@ -153,6 +208,8 @@ def build_context() -> str:
         "What it relies on most: " + ", ".join(f"{k} ({v:.0%})" for k, v in sure["top_features"].items()),
         "",
         _campaign_calendar_facts(),
+        "",
+        _wasted_products_facts(),
     ]
     return "\n".join(parts)
 
@@ -188,6 +245,23 @@ def _household_lookup(question: str) -> str:
     return "\n".join(lines)
 
 
+def _campaign_product_lookup(question: str) -> str:
+    """If the question names a specific campaign (e.g. "campaign 17"), pull the real product categories
+    its coupons actually covered -- the campaign calendar in build_context() has every campaign's type
+    and duration, but listing every campaign's full product list there would be huge, so this is a
+    lookup instead, same pattern as _household_lookup."""
+    match = CAMPAIGN_RE.search(question)
+    if not match:
+        return ""
+    key = int(match.group(1))
+    products = load_campaign_products()
+    rows = products[products["campaign"] == key]
+    if rows.empty:
+        return f"No product-coupon record found for campaign {key}."
+    commodities = sorted(rows["commodity"].unique().tolist())
+    return f"Real product categories campaign {key}'s coupons actually covered: " + ", ".join(commodities)
+
+
 def ask(history: list[dict], question: str) -> tuple[str, str]:
     """One call: the full grounding context as the system instruction, the chat history, the new
     question. No tool use, no retries -- if the model can't answer from the context, it says so, per
@@ -205,6 +279,9 @@ def ask(history: list[dict], question: str) -> tuple[str, str]:
     household = _household_lookup(question)
     if household:
         context = f"{context}\n\n{household}"
+    products = _campaign_product_lookup(question)
+    if products:
+        context = f"{context}\n\n{products}"
     contents = [types.Content(role="model" if h["role"] == "assistant" else "user",
                               parts=[types.Part(text=h["content"])]) for h in history]
     contents.append(types.Content(role="user", parts=[types.Part(text=question)]))
