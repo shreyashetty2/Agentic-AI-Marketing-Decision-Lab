@@ -74,6 +74,36 @@ def load_campaign_desc() -> pd.DataFrame:
     return df[["campaign", "campaign_type", "duration_days"]]
 
 
+@st.cache_data(ttl=60)
+def load_model_features(model: int) -> list[str]:
+    """The literal input columns of the model actually in use (not a generic count) -- straight from
+    the Modeling Agent's own manifest, the candidate it marked "in_use" (or its own "default" when
+    nobody has picked one yet, same fallback load_predictions() uses)."""
+    manifest = json.loads((PROCESSED / f"modeling_agent/model{model}/manifest.json").read_text())
+    in_use = manifest.get("in_use")
+    candidate_id = in_use["id"] if isinstance(in_use, dict) else manifest["default"]
+    return manifest["candidates"][candidate_id]["features"]
+
+
+@st.cache_data(ttl=60)
+def load_campaign_products() -> pd.DataFrame:
+    """Real product categories tied to each campaign's coupons (coupon.parquet links campaign -> product,
+    product.parquet names its real department/commodity/brand) -- not a model output, just what the
+    campaign actually covers."""
+    coupon = pd.read_parquet(PROCESSED / "coupon.parquet")
+    product = pd.read_parquet(PROCESSED / "product.parquet")
+    merged = coupon.merge(product, on="PRODUCT_ID", how="left")
+    return merged.rename(columns={"CAMPAIGN": "campaign", "COMMODITY_DESC": "commodity"})[
+        ["campaign", "commodity"]].dropna()
+
+
+@st.cache_data(ttl=60)
+def load_product_redemption_summary() -> pd.DataFrame:
+    """Real products, already analysed by Model 3's own product work (model3_product_redemption_summary.csv):
+    for each product seen across campaigns, how often a household that got the coupon never redeemed it."""
+    return pd.read_csv(PROCESSED / "model3_product_redemption_summary.csv")
+
+
 # Exact wording from src/features/feature_2a_spec.yaml -- the team anonymised and deliberately did not
 # claim what classification_2/3/4/5 represent (e.g. never assumed classification_3 means income), so
 # this page doesn't either.
