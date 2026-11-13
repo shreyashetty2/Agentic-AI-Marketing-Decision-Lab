@@ -258,8 +258,14 @@ def _campaign_product_lookup(question: str) -> str:
     rows = products[products["campaign"] == key]
     if rows.empty:
         return f"No product-coupon record found for campaign {key}."
-    commodities = sorted(rows["commodity"].unique().tolist())
-    return f"Real product categories campaign {key}'s coupons actually covered: " + ", ".join(commodities)
+    counts = rows["commodity"].value_counts()
+    if len(counts) <= 25:
+        return (f"Real product categories campaign {key}'s coupons actually covered "
+                f"({len(counts)} categories): " + ", ".join(sorted(counts.index)))
+    top = counts.head(15)
+    return (f"Campaign {key}'s coupons covered {len(counts)} product categories -- broad/storewide, "
+            f"too many to list individually. By far its top categories (by coupon volume): "
+            + ", ".join(f"{name} ({n})" for name, n in top.items()))
 
 
 def ask(history: list[dict], question: str) -> tuple[str, str]:
