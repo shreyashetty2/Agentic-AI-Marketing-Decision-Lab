@@ -59,11 +59,16 @@ def load_sure_things() -> dict:
 
 @st.cache_data(ttl=60)
 def load_campaign_desc() -> pd.DataFrame:
-    """Real campaign metadata (not a model output): each campaign's type (A/B/C, the dataset's own
-    grouping -- no finer description than that was ever given) and how many days it ran. START_DAY/
-    END_DAY are the dataset's own anonymised, sequential day-numbers, not real calendar dates -- there
-    is no month, season, or actual date anywhere in this dataset (checked: neither campaign_desc nor
-    transaction_data carries one), so duration and type are the only real facts about timing we have."""
+    """Real campaign metadata (not a model output): each campaign's type (A/B/C) and how many days it
+    ran. The Type label itself has a real, documented meaning (see docs/agent_design/data_agent_design.md
+    section 4.6, confirmed against coupon.parquet's own coupon counts): TypeA campaigns mail a *pool* of
+    ~180-210 possible coupons and each household gets 16 chosen from it (which 16 is not recorded), so a
+    TypeA campaign's product list is broad/storewide, not any one household's actual mailing. TypeB/C
+    campaigns are narrower (TypeB 2-33 coupons, TypeC 1-34) and every mailed household gets ALL of that
+    campaign's coupons, so their product list is exactly what that household received. START_DAY/END_DAY
+    are the dataset's own anonymised, sequential day-numbers, not real calendar dates -- there is no month,
+    season, or actual date anywhere in this dataset (checked: neither campaign_desc nor transaction_data
+    carries one), so duration and type are the only real facts about timing we have."""
     df = pd.read_parquet(PROCESSED / "campaign_desc.parquet")
     df = df.rename(columns={"CAMPAIGN": "campaign", "DESCRIPTION": "campaign_type"})
     # Raw file spells this "TypeA"/"TypeB"/"TypeC"; the modeling agent's own predictions already
@@ -89,12 +94,15 @@ def load_model_features(model: int) -> list[str]:
 def load_campaign_products() -> pd.DataFrame:
     """Real product categories tied to each campaign's coupons (coupon.parquet links campaign -> product,
     product.parquet names its real department/commodity/brand) -- not a model output, just what the
-    campaign actually covers."""
+    campaign actually covers. Keeps both the fine-grained commodity and the coarser department, so a
+    broad/storewide campaign (see load_campaign_desc's Type explanation) can be summarised at the
+    department level instead of listing 100+ commodities."""
     coupon = pd.read_parquet(PROCESSED / "coupon.parquet")
     product = pd.read_parquet(PROCESSED / "product.parquet")
     merged = coupon.merge(product, on="PRODUCT_ID", how="left")
-    return merged.rename(columns={"CAMPAIGN": "campaign", "COMMODITY_DESC": "commodity"})[
-        ["campaign", "commodity"]].dropna()
+    return merged.rename(columns={
+        "CAMPAIGN": "campaign", "COMMODITY_DESC": "commodity", "DEPARTMENT": "department",
+    })[["campaign", "department", "commodity"]].dropna(subset=["commodity"])
 
 
 @st.cache_data(ttl=60)
