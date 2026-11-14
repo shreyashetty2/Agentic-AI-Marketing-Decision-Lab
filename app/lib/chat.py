@@ -15,6 +15,16 @@ from lib.data import (MODEL_NAMES, load_campaign_desc, load_campaign_products, l
                        load_predictions, load_product_redemption_summary, load_run_summary,
                        load_sure_things, step, with_demographics)
 
+TYPE_MEANING = {
+    "A": "a broad/storewide campaign -- the dataset only records a pool of ~180-210 possible coupons for "
+         "the campaign; each household got 16 chosen from that pool, but which 16 is not recorded, so no "
+         "single household's exact mailing is known, only the broad pool of products it could have covered",
+    "B": "a targeted campaign with a small coupon set (2-33 coupons); every household mailed in it got "
+         "ALL of those coupons, so its product list is exactly what every one of its households received",
+    "C": "a targeted campaign with a small coupon set (1-34 coupons), the same as Type B -- every household "
+         "mailed in it got ALL of those coupons",
+}
+
 HOUSEHOLD_RE = re.compile(r"household\D{0,6}(\d+)", re.IGNORECASE)
 CAMPAIGN_RE = re.compile(r"campaign\D{0,6}(\d+)", re.IGNORECASE)
 
@@ -44,16 +54,26 @@ luck" or the verdict is "human needed", say that plainly rather than rounding it
 anonymized sequential day-count and each campaign's Type (A, B, or C). If asked what month, season, or \
 "time of year" is best to mail, say plainly that this data has no real calendar dates to answer that from \
 -- never guess a season. You CAN answer from campaign duration (in days) and campaign Type.
+- Campaign Type (A, B, or C) has a real, specific meaning, given to you below -- always explain it in plain \
+terms when it's relevant, never just say "Type A" without saying what that means. In short: Type A is a \
+broad/storewide campaign where no single household's exact product list is known (only a pool); Type B and \
+C are targeted campaigns where every mailed household got every one of that campaign's (few) coupons, so \
+their product list is exactly known.
 - If asked about a new or upcoming campaign that isn't in the historical list (e.g. "we're planning a new \
 Type A campaign, who should we target"), you cannot score it directly -- nobody has run the models on it. \
-Answer by analogy: use the historical performance of past campaigns of the *same Type* as the closest \
-available guide, and say explicitly that this is an analogy to similar past campaigns, not a new prediction.
+Answer by analogy on TWO fronts: (1) who to target -- use the historical performance of past campaigns of \
+the *same Type* as the closest available guide; (2) what products it likely covers -- generalise to the \
+department-level product categories typical of that Type historically (given below), never a single past \
+campaign's exact list. Say explicitly that both are an analogy to similar past campaigns, not a new \
+prediction.
 - You're talking to someone who may have zero background in this project -- explain plainly what things \
-mean using the glossary given to you below (age group, household size, campaign, uplift, etc.), including \
-being upfront about what is genuinely NOT known: some demographic labels in this dataset (see the glossary) \
-were anonymised at the source with no documented real-world meaning -- if asked what one of those actually \
-represents (e.g. income, education), say plainly that this anonymised dataset never revealed that, and do \
-not guess what it might be.
+mean using the glossary given to you below (age group, household size, campaign, campaign Type, uplift, \
+etc.), every time they come up, not just the first time: assume no prior message's explanation was read. \
+Someone with zero knowledge of these columns should be able to understand the full answer on its own, \
+including being upfront about what is genuinely NOT known: some demographic labels in this dataset (see \
+the glossary) were anonymised at the source with no documented real-world meaning -- if asked what one of \
+those actually represents (e.g. income, education), say plainly that this anonymised dataset never revealed \
+that, and do not guess what it might be.
 - When discussing "the model" behind any tool, be specific, never generic: name the actual algorithm (e.g. \
 "random forest", "x_learner") AND, if asked what it's built from, list the literal input columns given to \
 you below -- never just say "a model" or "some data" without naming what's actually there.
@@ -84,8 +104,11 @@ def _glossary_facts() -> str:
     return "\n".join([
         "Glossary (plain-language terms a newcomer would need):",
         "- Campaign: a single coupon-mailing promotion, covering specific real products, run over some "
-        "number of days (see the campaign calendar below). Each campaign has a Type (A, B, or C) -- the "
-        "dataset's own grouping, no finer description than that exists.",
+        "number of days (see the campaign calendar below). Each campaign has a Type -- A, B, or C -- and "
+        "that Type has a real meaning: Type A is broad/storewide (a pool of ~180-210 possible coupons; "
+        "each household got 16 of them, but which 16 isn't recorded, so no single household's exact list "
+        "is known). Type B and C are targeted (a small set of 1-34 coupons) and every mailed household got "
+        "ALL of them, so their product list is exactly known.",
         "- Redemption: a household used the mailed coupon on a real purchase.",
         "- Uplift: how many EXTRA buyers a household contributes if mailed, compared to not mailing them -- "
         "not just whether they buy, but whether mailing is what caused it.",
@@ -162,10 +185,32 @@ def _campaign_calendar_facts() -> str:
     anywhere in this dataset (checked both campaign_desc and transaction_data), so this is the only
     honest answer to "when"/"how long" questions."""
     desc = load_campaign_desc().sort_values("campaign")
-    lines = ["Campaign calendar (real data, every campaign, day-numbers are anonymised/sequential -- "
-             "NOT real calendar dates, there is no month or season anywhere in this dataset):"]
+    lines = [
+        "What campaign Type means (real, documented, not a guess -- see TYPE_MEANING):",
+        *(f"- Type {t}: {meaning}" for t, meaning in TYPE_MEANING.items()),
+        "",
+        "Campaign calendar (real data, every campaign, day-numbers are anonymised/sequential -- "
+        "NOT real calendar dates, there is no month or season anywhere in this dataset):",
+    ]
     lines += [f"- campaign {r.campaign}: Type {r.campaign_type}, runs {r.duration_days} days"
               for r in desc.itertuples()]
+    return "\n".join(lines)
+
+
+def _type_product_facts() -> str:
+    """What kinds of products each campaign Type typically covers, generalised to the department level
+    (broad categories like GROCERY, MEAT, COSMETICS) across every historical campaign of that type -- the
+    honest way to answer "what would a new Type X campaign likely cover": no single past campaign's exact
+    product list generalises to a campaign that hasn't been mailed yet, but the department pattern across
+    many campaigns of the same Type does."""
+    products = load_campaign_products()
+    desc = load_campaign_desc()[["campaign", "campaign_type"]]
+    merged = products.merge(desc, on="campaign", how="left").dropna(subset=["campaign_type"])
+    lines = ["Typical product departments by campaign Type (generalised across ALL historical campaigns "
+             "of that type -- use this, not one campaign's list, for a new campaign that hasn't run yet):"]
+    for campaign_type, group in merged.groupby("campaign_type"):
+        top = group["department"].value_counts().head(6)
+        lines.append(f"- Type {campaign_type}: mostly " + ", ".join(top.index))
     return "\n".join(lines)
 
 
@@ -208,6 +253,8 @@ def build_context() -> str:
         "What it relies on most: " + ", ".join(f"{k} ({v:.0%})" for k, v in sure["top_features"].items()),
         "",
         _campaign_calendar_facts(),
+        "",
+        _type_product_facts(),
         "",
         _wasted_products_facts(),
     ]
@@ -262,10 +309,19 @@ def _campaign_product_lookup(question: str) -> str:
     if len(counts) <= 25:
         return (f"Real product categories campaign {key}'s coupons actually covered "
                 f"({len(counts)} categories): " + ", ".join(sorted(counts.index)))
+    # Too many commodities to list one by one -- this is the Type A pattern (a broad coupon pool, not
+    # any one household's actual mailing), so generalise to department first, same idea as
+    # _type_product_facts() but for this one campaign.
+    dept_counts = rows["department"].value_counts()
     top = counts.head(15)
-    return (f"Campaign {key}'s coupons covered {len(counts)} product categories -- broad/storewide, "
-            f"too many to list individually. By far its top categories (by coupon volume): "
-            + ", ".join(f"{name} ({n})" for name, n in top.items()))
+    return (
+        f"Campaign {key}'s coupons covered {len(counts)} product categories -- broad/storewide (the Type A "
+        "pattern: the data only records a pool of possible coupons, not which 16 any one household "
+        "actually got, so no single household's exact list is known). Generalised to department: "
+        + ", ".join(f"{d} ({n})" for d, n in dept_counts.head(8).items())
+        + ". Top individual categories by coupon volume: "
+        + ", ".join(f"{name} ({n})" for name, n in top.items())
+    )
 
 
 def ask(history: list[dict], question: str) -> tuple[str, str]:
