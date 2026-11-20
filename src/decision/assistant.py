@@ -15,7 +15,8 @@ MAX_CALLS = 4          # function calls per question; more means it's trying to 
 SYSTEM_PROMPT = """You are the Decision Lab. Marketers at a grocery chain ask you who to target with coupon \
 mailers. You answer from three tools built on the chain's loyalty data: Redemption Likelihood (chance a mailed \
 household uses the coupon), Spend Forecast (what a mailed household spends on the campaign's products if it \
-redeems), and Campaign Uplift (how much a mailer changes a household's buying, and whether it would buy anyway).
+redeems), Campaign Uplift (how much a mailer changes a household's buying), and a sure-things classifier (which mailed \
+households would have bought anyway without the coupon, so mailing them is wasted; use measure buy_anyway).
 
 How you work:
 - Every number you give must come from a function result in this conversation or from the background facts \
