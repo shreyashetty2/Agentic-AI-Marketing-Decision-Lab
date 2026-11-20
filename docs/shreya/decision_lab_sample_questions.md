@@ -14,11 +14,15 @@ If an answer ever drifts from these, treat it as a bug.
 ## Targeting and results
 | Question | Should say |
 |---|---|
-| Which households should we target for the most uplift? | Age Group 1 and 6, 1 and 2 person households (anonymised age groups, exact ages unknown), plus the "human needed" caveat. |
+| Which households should we target for the most uplift? | Asks which campaign first, because the best households differ by campaign. Then gives a ranked list. |
 | How confident are you that this beats random mailing? | +2.0 extra buyers per 100 mailed, range -0.6 to +4.5 includes zero, so it could be luck. |
 | Which products do people buy without using the coupon? | About 88% (1,407 of 1,596) never redeemed. Examples: bananas 519 of 519 in campaign 8 (Type A, illustration only), eggs, pasta sauce and juice in targeted campaigns. |
-| What about household 323? | Its uplift scores across 11 campaigns (highest 0.9066 in campaign 17), demographics if on file, and the verdict caveat. |
+| What about household 323? | Its uplift by campaign (about 21% in campaign 20, 10.5% in campaign 17), no demographics on file, never mailed, and the verdict caveat. |
 | Which segment should we avoid mailing? | Lowest uplift groups with the "human needed" caveat, and the sure things tool. |
+
+| Who should we target in campaign 17 to get the most uplift? | Top 10 by uplift (1984, 2325, 208 lead, about 15%), how it was ranked, and the "human needed" caveat. Without "uplift" it asks which measure you want. |
+| Compare campaign 17 and campaign 8 | Type B (32 days, 15 categories) vs Type A (48 days, broad pool). Only Redemption Likelihood covers campaign 8. |
+| Compare household 323 and household 373 | Very similar uplift in every campaign (campaign 17: 10.5% vs 11.1%). No demographics, neither mailed. |
 
 ## Honest "not available" answers
 | Question | Should say |
