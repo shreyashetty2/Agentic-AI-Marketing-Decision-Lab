@@ -25,6 +25,8 @@ If an answer ever drifts from these, treat it as a bug.
 | Compare campaign 17 and campaign 8 | Type B (32 days, 15 categories) vs Type A (48 days, broad pool). Only Redemption Likelihood covers campaign 8. |
 | Compare household 323 and household 373 | Very similar uplift in every campaign (campaign 17: 10.5% vs 11.1%). No demographics, neither mailed. |
 
+| We are planning a new Type B campaign. Who should we target and who should we avoid? | Two sections. Target: kids 3+ and 2 (about 13 to 14% redeem), Age Group 6 and 1 for uplift. Avoid: Age Group 1 (lowest redemption), heavy past spenders on the promoted products (sure things). States it is an analogy to 8 past Type B campaigns, that gaps are small, and that habits matter more than demographics. |
+
 ## Honest "not available" answers
 | Question | Should say |
 |---|---|
