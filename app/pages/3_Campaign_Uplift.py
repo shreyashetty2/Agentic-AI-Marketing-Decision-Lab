@@ -8,11 +8,12 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from lib.charts import feature_importance_chart, population_breakdown, score_histogram  # noqa: E402
 from lib.data import load_predictions, load_run_summary, load_sure_things, step, with_demographics  # noqa: E402
-from lib.style import inject, status_badge  # noqa: E402
+from lib.style import explainer, inject, status_badge  # noqa: E402
 
 st.set_page_config(page_title="Campaign Uplift", layout="wide")
 inject()
 st.title("Campaign Uplift (persuadables)")
+explainer(3)
 
 summary = load_run_summary()
 modeling, evaluation = step(summary, "modeling", 3), step(summary, "evaluation", 3)
