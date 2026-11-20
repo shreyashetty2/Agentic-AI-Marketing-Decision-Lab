@@ -1,0 +1,92 @@
+# The Decision Lab's question set (docs/agent_design/decision_lab_design.md, "How we know it works").
+# Run against live Gemini with: python scripts/eval_decision_lab.py
+#
+# Each question names what a correct turn does:
+#   form:      some call in the turn must include these fields (others may be present); looking something up
+#              first (a code, a category name) is fine
+#   result:    with form: that call's result must include these numbers (what the code resolved, not the words)
+#   status:    some call must get this result from the code -- ask (a clarifying question) or cannot (out of scope)
+#   no_answer: true -- the question is out of scope, so no `answer` call may work out numbers for it (describing a
+#              campaign to suggest a nearby question is fine)
+#   says:      the final answer must contain each of these words or numbers (on its own, or with any of the above)
+#   never_says: the final answer must contain none of these (e.g. a claim the data can't support)
+#
+# design: shaped the menu (the 11/13 mentor meeting). held_back: written after the menu was fixed and never used
+# to change it -- run once per change. team: the team's own sample questions and the point each answer must make
+# (docs/shreya/decision_lab_sample_questions.md). Replace or extend with real questions from TD's marketers.
+design:
+  - q: "If I mail 1,000 households in campaign 12, which segments give the best uplift?"
+    form: {tool: answer, measure: uplift, campaign: 12}
+  - q: "What response rate would I get if I targeted homeowners?"
+    form: {tool: answer, measure: redemption_chance}   # one number for homeowners, or homeowners in a breakdown
+    says: ["homeowner"]
+  - q: "Which homeowner group is most likely to redeem?"
+    form: {tool: answer, how: by_segment, measure: redemption_chance, segment_by: homeowner}
+  - q: "Give me a file of the 100 households to mail for campaign 10."
+    form: {tool: answer, how: top, campaign: 10, top_n: 100}
+  - q: "For households with 3 or more kids, which products should I put coupons on?"
+    form: {tool: answer, how: by_category}
+  - q: "Which kinds of households redeem yogurt coupons, by kids?"
+    form: {tool: answer, measure: past_redemptions, segment_by: kids}
+  - q: "What about household 323?"
+    form: {tool: answer, how: household, household_key: 323}
+  - q: "What is age group 1?"
+    form: {tool: describe_code}
+    result: {trait: classification_1}   # the marketer's words ("Age Group1") must resolve to the right field
+  - q: "What did campaign 16 promote?"
+    form: {tool: describe_campaign, campaign: 16}
+  - q: "What's the uplift for campaign 25?"
+    status: cannot
+  - q: "What's the best time of year to mail a campaign?"
+    no_answer: true
+  - q: "How often should I send mailers for campaign 5?"
+    no_answer: true
+  - q: "Who are the top 1,000 households to mail?"
+    status: ask
+
+held_back:
+  - q: "Top 3 households for campaign 9 by expected revenue?"
+    form: {tool: answer, how: top, measure: expected_revenue, campaign: 9, top_n: 3}
+  - q: "Compare homeowners and renters on expected spend in campaign 14."
+    form: {tool: answer, how: compare, measure: expected_spend, campaign: 14}
+  - q: "In campaign 11, how many of the mailed households would have bought anyway?"
+    form: {tool: answer, measure: buy_anyway, campaign: 11}
+  - q: "Which households with 2 kids are best to mail for campaign 19, top quarter?"
+    status: ask   # "best" doesn't say by which measure
+  - q: "Do households with kids redeem diaper coupons more?"
+    form: {tool: answer, measure: past_redemptions}
+  - q: "Which households should I target?"
+    status: ask
+  - q: "What will households with 5 or more people spend?"
+    no_answer: true
+  - q: "Spend forecast for campaign 8, please."
+    status: cannot
+  - q: "Score these 500 new households for me."
+    no_answer: true
+  - q: "What's the weather in Toronto?"
+    no_answer: true
+
+team:
+  - q: "What percent of coupons actually get redeemed?"
+    says: ["889", "7,208"]
+  - q: "What data is this built on?"
+    says: ["2,500"]
+  - q: "What does campaign Type A mean?"
+    says: ["16"]
+  - q: "How confident are you that Campaign Uplift beats random mailing?"
+    says: ["luck"]
+  - q: "Which products do people buy without using the coupon?"
+    says: ["88%"]
+  - q: "What month is best to mail?"
+    no_answer: true
+    says: ["date"]
+  - q: "Does the discount size matter?"
+    no_answer: true
+  - q: "What does human needed mean?"
+    says: ["person"]
+  - q: "Why did you pick the X-learner?"
+    says: ["12"]
+  - q: "What is household 1's household size?"
+    says: ["household size"]
+    never_says: ["household size is 2", "2 people", "two people", "2-person", "two-person"]
+

@@ -57,3 +57,46 @@ def status_badge(verdict: str) -> str:
             f'background:{s["color"]}1a;color:{INK};border:1px solid {s["color"]}55;'
             f'border-radius:999px;padding:0.3rem 0.9rem;font-weight:600;font-size:0.95rem;">'
             f'<span style="color:{s["color"]};font-weight:800;">{s["icon"]}</span> {s["label"]}</span>')
+
+
+_EXPLAINERS = {
+    "overview": (
+        "**Three questions, one tool each.** Will a household use the coupon (Redemption Likelihood)? "
+        "What is it worth (Spend Forecast)? Did the coupon make a difference, or would they have bought "
+        "anyway (Campaign Uplift)?\n\n"
+        "**The green, amber and red badge is the automatic check's verdict.** *Approve* means the tool "
+        "passed. *Human needed* means the checks could not settle it, so a person should judge. A result "
+        "whose range includes zero could be luck.\n\n"
+        "**Where the numbers come from.** Everything here is read from the last run of the agents. This "
+        "page never calculates anything itself."),
+    1: (
+        "**What this answers:** will a mailed household use the coupon?\n\n"
+        "**How to read it:** every household gets a score from 0 to 1. Higher means more likely to redeem. "
+        "The list shows the most likely households first, and the chart shows how scores are spread out.\n\n"
+        "**Segments:** the bottom section averages the score for groups of households. Age Group runs "
+        "1 to 6 in order, but the real ages were removed from this anonymised data, so we cannot say "
+        "which end is older.\n\n"
+        "**What drives it:** past coupon use and shopping habits, not demographics."),
+    2: (
+        "**What this answers:** if a household is mailed, about how many dollars will it spend on the "
+        "campaign's products?\n\n"
+        "**How to read it:** each household gets a dollar forecast. These are averages, not guarantees. "
+        "The simple rule to beat is a household's usual spend on those products.\n\n"
+        "**Be careful:** there were only 254 redemptions to learn from, so treat the forecast as a rough "
+        "guide. Segments with few households can swing a lot."),
+    3: (
+        "**What this answers:** who does mailing actually change? Uplift is the number of extra buyers a "
+        "household adds if mailed, compared with not mailing it.\n\n"
+        "**How it works:** mailed households are compared with households that were not mailed. The "
+        "question is whether the mailing caused the buying, not just whether the two happened together.\n\n"
+        "**Sure things:** households that would likely have bought anyway. Mailing them is a likely "
+        "wasted send.\n\n"
+        "**Be careful:** mailed households were not picked at random, so uplift scores are approximate "
+        "and need a person's judgment."),
+}
+
+
+def explainer(key) -> None:
+    """A collapsed plain-language guide for someone with no background in this project."""
+    with st.expander("New here? What am I looking at?"):
+        st.markdown(_EXPLAINERS[key])
