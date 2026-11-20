@@ -120,11 +120,19 @@ def validate(p: dict, ctx: dict) -> tuple[str, str, dict | None]:
     cand["changes"] = changes(cand, default)
     if not cand["changes"]:
         return "rejected", "this is the owner's model unchanged", None
-    for cid, other in ctx["existing"].items():
-        if (other.get("family") == family and set(other["features"]) == set(features)
-                and dict(other.get("params") or {}) == params):
-            return "rejected", f"already tested as `{cid}`", None
+    same = same_candidate(cand, ctx["existing"])
+    if same:
+        return "rejected", f"already tested as `{same}`", None
     return "ready", "safe and testable: " + " + ".join(cand["changes"]) + " changed", cand
+
+
+def same_candidate(cand: dict, existing: dict) -> str | None:
+    """The id of an existing candidate with the same learner, columns and settings, if any."""
+    for cid, other in existing.items():
+        if (other.get("family") == cand["family"] and set(other["features"]) == set(cand["features"])
+                and dict(other.get("params") or {}) == cand["params"]):
+            return cid
+    return None
 
 
 def proposals_path(out_dir: Path) -> Path:
@@ -146,14 +154,22 @@ def save_proposals(out_dir: Path, proposals: list[dict]) -> None:
 
 def approved_candidates(proposals: list[dict], ctx: dict) -> dict:
     """The approved proposals, re-checked (a person may have edited them), as candidates for the agent.
-    An approved proposal that fails the checks stops the run: a person asked for it, so a person fixes it."""
+    An approved proposal that fails the checks stops the run: a person asked for it, so a person fixes it --
+    including two approved proposals that are the same change, since only a person knows which was meant.
+    One exception: an approved proposal that has since become one of the standard options is skipped with a
+    note. What the person asked for already runs every time, so there is nothing for them to fix, and
+    stopping would halt every later run on a choice that was already honoured."""
     out = {}
     for p in proposals:
         if not p.get("approved"):
             continue
-        status, reason, cand = validate(p, {**ctx, "existing": {**ctx["existing"], **out}})
+        status, reason, cand = validate(p, {**ctx, "existing": out})
         if status != "ready":
             raise SystemExit(f"[STOP] approved proposal {p['id']} cannot be tested: {reason}")
+        standard = same_candidate(cand, ctx["existing"])
+        if standard:
+            print(f"[NOTE] approved proposal {p['id']} is now the standard option `{standard}`, which runs anyway")
+            continue
         out[p["id"]] = cand
     return out
 

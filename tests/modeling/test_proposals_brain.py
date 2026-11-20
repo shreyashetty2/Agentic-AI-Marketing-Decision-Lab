@@ -261,3 +261,16 @@ def test_api_key_comes_from_the_environment_or_the_local_env_file(tmp_path, monk
     assert brain.api_key() == "abc"
     monkeypatch.setenv("ANTHROPIC_API_KEY", "xyz")
     assert brain.api_key() == "xyz"
+
+
+def test_an_approved_proposal_that_became_a_standard_option_is_skipped_not_stopped(capsys):
+    existing = {"own": DEFAULT, "deep": {**DEFAULT, "params": {**DEFAULT["params"], "max_depth": 9}}}
+    props = [{"id": "old", "params": {"max_depth": 9}, "approved": True},
+             {"id": "new", "add_columns": ["recency"], "approved": True}]
+    assert list(approved_candidates(props, _ctx(existing=existing))) == ["new"]
+    assert "`deep`" in capsys.readouterr().out
+
+
+def test_an_approved_proposal_that_fails_a_safety_check_still_stops_even_if_it_matches_nothing():
+    with pytest.raises(SystemExit, match="STOP"):
+        approved_candidates([{"id": "c", "add_columns": ["start_day"], "approved": True}], _ctx())
