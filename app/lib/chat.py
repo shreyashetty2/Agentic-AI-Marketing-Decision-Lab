@@ -11,9 +11,10 @@ import re
 
 import streamlit as st
 
-from lib.data import (MODEL_NAMES, load_campaign_desc, load_campaign_products, load_model_features,
-                       load_predictions, load_product_redemption_summary, load_run_summary,
-                       load_sure_things, step, with_demographics)
+from lib.data import (MODEL_NAMES, load_campaign_desc, load_campaign_products, load_dataset_facts,
+                       load_demographics, load_model_features, load_predictions,
+                       load_product_redemption_summary, load_run_summary, load_sure_things,
+                       load_type_a_product_example, step, with_demographics)
 
 TYPE_MEANING = {
     "A": "a broad/storewide campaign -- the dataset only records a pool of ~180-210 possible coupons for "
@@ -79,8 +80,24 @@ that, and do not guess what it might be.
 you below -- never just say "a model" or "some data" without naming what's actually there.
 - If asked what products a specific campaign covers, use the real product categories given to you below for \
 that campaign -- never guess at what a campaign might be selling.
-- Short, direct answers. A sentence or two for a simple question; a short list only when the question asks \
-for several things (e.g. "which segments").
+- Budget, ROI, "how many households should we mail", or "what is the best mailing depth" are NOT computed \
+anywhere yet (combining the tools into expected revenue, chance of redeeming times expected spend, is the \
+team's next step). Never turn a coupon budget into a household count, never invent a cost or revenue figure. \
+Say it is not available yet, then offer what is: the tools RANK households, and the marketer picks how deep \
+to go down the list; Redemption Likelihood's score shows how many redeemers are caught at each depth.
+- "Human needed" means the automatic checks could not settle it and a person should judge; "approve" means \
+it passed. A range that includes zero means the result could be luck. Explain these in plain words when they \
+come up.
+- Redemption rates are real counts (see "Dataset facts" below), not model scores: when asked what share of \
+coupons get redeemed, give the real counts and rate, by Type, never the average predicted score.
+- If your answer leans on Campaign Uplift or Spend Forecast numbers (e.g. recommending a segment to target or \
+avoid), add one short clause saying that tool's verdict is "human needed" and what that means, so the \
+recommendation is never presented as proven.
+- Product-by-product results DO exist (see the product facts below): never say a product breakdown is not \
+computed; give the matching products, and say Type A campaign products are only an illustration.
+- Length: lead with the direct answer in the first sentence, then at most a few short lines of support. Roughly \
+120 words unless the question asks for a list or a comparison. Do not dump every caveat; give the one that \
+matters most for the question.
 """
 
 
@@ -109,6 +126,14 @@ def _glossary_facts() -> str:
         "each household got 16 of them, but which 16 isn't recorded, so no single household's exact list "
         "is known). Type B and C are targeted (a small set of 1-34 coupons) and every mailed household got "
         "ALL of them, so their product list is exactly known.",
+        "- Mailed vs not mailed: Campaign Uplift compares households that were mailed a campaign (the "
+        "'treatment' group) with households that were not (the 'control' group). 'Causal' means asking "
+        "whether the mailing CAUSED the buying, not just whether the two happened together.",
+        "- Verdict: each tool is checked automatically. 'Approve' = passed; 'human needed' = the checks "
+        "could not settle it, so a person should judge. 'Could be luck' = the result's likely range includes "
+        "zero, so it may be chance.",
+        "- AUC: a 0-to-1 score of how well a tool ranks likely redeemers above unlikely ones (0.5 = no "
+        "better than guessing, 1 = perfect).",
         "- Redemption: a household used the mailed coupon on a real purchase.",
         "- Uplift: how many EXTRA buyers a household contributes if mailed, compared to not mailing them -- "
         "not just whether they buy, but whether mailing is what caused it.",
@@ -214,6 +239,50 @@ def _type_product_facts() -> str:
     return "\n".join(lines)
 
 
+def _dataset_facts() -> str:
+    """What the data is and how often mailings were actually redeemed -- real counts, not model scores."""
+    d = load_dataset_facts()
+    parts = ", ".join(f"Type {t}: {r} of {n} ({r / n:.1%})" for t, (r, n) in sorted(d["by_type"].items()))
+    return "\n".join([
+        "Dataset facts (real counts, not model scores):",
+        "- Source: dunnhumby's 'The Complete Journey', a real grocery chain's loyalty-card data, anonymised: "
+        "about 2,500 households and 2.6 million purchase lines over 711 anonymised days (no real dates).",
+        f"- Mailing data: {d['campaigns']} coupon campaigns, {d['mailings']:,} household-campaign mailings to "
+        f"{d['households_mailed']:,} distinct households. Only about 800 households have demographic details on file.",
+        f"- Actually redeemed: {d['redeemed']} of {d['mailings']:,} mailings ({d['redeemed'] / d['mailings']:.1%}, "
+        f"about 1 in 8). By campaign Type: {parts}. Broad (Type A) campaigns are redeemed about twice as often.",
+        "- Of mailed households that bought a campaign's products, about 88% (1,407 of 1,596) never redeemed "
+        "the coupon: they bought anyway. That is the core reason uplift matters.",
+    ])
+
+
+def _type_a_example_facts() -> str:
+    df = load_type_a_product_example()
+    lines = ["Product-level illustration from campaign 8 (a Type A campaign, so only an illustration: the "
+             "exact 16 coupons each household got are unknown, per-product results are not individually "
+             "reliable). Mailed households who bought each product, and how many did so WITHOUT redeeming:"]
+    lines += [f"- {r.sub_commodity_desc.title()} ({r.commodity_desc.title()}): {r.n_without_redemption} of "
+              f"{r.n_treated_bought} mailed buyers never redeemed ({r.pct_without_redemption:.0f}%); unmailed "
+              f"households that bought it: {r.n_control_bought}" for r in df.itertuples()]
+    return "\n".join(lines)
+
+
+def _per_campaign_facts() -> str:
+    """Average predicted score per campaign for each tool (a model output, not an actual result), so a
+    "which campaign" question has a real table to read instead of only the per-Type averages."""
+    desc = load_campaign_desc().set_index("campaign")
+    cols = {}
+    for model, label in ((1, "redemption-likelihood"), (2, "forecast spend $"), (3, "uplift")):
+        cols[label] = load_predictions(model).groupby("campaign")["score"].mean()
+    lines = ["Average predicted score per modelled campaign (predicted, not actual results; a campaign "
+             "appears only for the tools that scored it):"]
+    for c in sorted(set().union(*[set(v.index) for v in cols.values()])):
+        t, dur = desc.loc[c, "campaign_type"], desc.loc[c, "duration_days"]
+        vals = ", ".join(f"{k} {v[c]:.3f}" for k, v in cols.items() if c in v.index)
+        lines.append(f"- campaign {c} (Type {t}, {dur} days): {vals}")
+    return "\n".join(lines)
+
+
 def _campaign_type_facts(model: int, score_label: str, fmt: str = "{:.4f}") -> str:
     """Historical performance grouped by campaign Type (A/B/C) -- the closest honest answer to "a new
     campaign of type X is coming, who should we target": an analogy to past campaigns of that same
@@ -252,11 +321,17 @@ def build_context() -> str:
         f"versus a {sure['base_rate']:.1%} base rate; trained on {sure['n_train']:,}, tested on {sure['n_test']:,} households.",
         "What it relies on most: " + ", ".join(f"{k} ({v:.0%})" for k, v in sure["top_features"].items()),
         "",
+        _dataset_facts(),
+        "",
         _campaign_calendar_facts(),
+        "",
+        _per_campaign_facts(),
         "",
         _type_product_facts(),
         "",
         _wasted_products_facts(),
+        "",
+        _type_a_example_facts(),
     ]
     return "\n".join(parts)
 
@@ -286,9 +361,51 @@ def _household_lookup(question: str) -> str:
         found = True
         lines.append(f"{MODEL_NAMES[model]} ({label}): " + "; ".join(
             f"campaign {r.campaign}: {fmt.format(r.score)}" for r in rows.itertuples()))
+    demo = load_demographics()
+    demo = demo[demo["household_key"] == key]
+    if not demo.empty:
+        r = demo.iloc[0]
+        lines.append(f"Demographics on file: age group {r['classification_1']} (ordered; exact ages unknown), "
+                     f"household size {r['classification_4']}, homeowner status {r['homeowner_desc']}, "
+                     f"kids: {r['kid_category_desc']}.")
+        found = True
+    else:
+        lines.append("No demographic record on file for this household.")
     if not found:
         lines.append("No record of this household in any model's mailed households -- say so plainly, "
                       "don't guess at a score.")
+    return "\n".join(lines)
+
+
+_STOP = {"what", "which", "products", "product", "about", "does", "that", "with", "have", "this", "from",
+         "buy", "bought", "without", "coupon", "coupons", "ever", "tell", "show", "campaign", "redeem",
+         "redeemed", "redemption", "many", "most", "worst", "best", "send", "mail", "their", "there"}
+
+
+def _product_lookup(question: str) -> str:
+    """If the question names a product (e.g. "bananas", "eggs", "cheese"), pull matching rows from the
+    team's own product analysis (Type B/C campaigns) plus the campaign 8 Type A illustration. Still
+    grounded: only real rows from files already computed."""
+    words = {w.rstrip("s") for w in re.findall(r"[a-z]{4,}", question.lower()) if w not in _STOP}
+    if not words:
+        return ""
+    lines = []
+    df = load_product_redemption_summary()
+    text = (df["commodity_desc"].fillna("") + " " + df["sub_commodity_desc"].fillna("")).str.lower()
+    hit = df[text.apply(lambda t: any(w in t for w in words))]
+    if not hit.empty:
+        hit = hit.nlargest(8, "n_treated_bought")
+        lines.append("Product matches in the team's product analysis (targeted Type B/C campaigns):")
+        lines += [f"- {r.commodity_desc} / {r.sub_commodity_desc} ({r.brand}): {r.n_without_redemption} of "
+                  f"{r.n_treated_bought} mailed buyers did not redeem ({r.pct_without_redemption:.0f}%), "
+                  f"across {r.n_campaigns} campaign(s)" for r in hit.itertuples()]
+    ex = load_type_a_product_example()
+    extext = (ex["commodity_desc"] + " " + ex["sub_commodity_desc"]).str.lower()
+    exhit = ex[extext.apply(lambda t: any(w in t for w in words))]
+    if not exhit.empty:
+        lines.append("Matches in the campaign 8 (Type A) illustration (see its caveat in the facts above): "
+                     + "; ".join(f"{r.sub_commodity_desc.title()}: {r.n_without_redemption} of {r.n_treated_bought} "
+                                 f"mailed buyers never redeemed" for r in exhit.itertuples()))
     return "\n".join(lines)
 
 
@@ -344,6 +461,9 @@ def ask(history: list[dict], question: str) -> tuple[str, str]:
     products = _campaign_product_lookup(question)
     if products:
         context = f"{context}\n\n{products}"
+    product_facts = _product_lookup(question)
+    if product_facts:
+        context = f"{context}\n\n{product_facts}"
     contents = [types.Content(role="model" if h["role"] == "assistant" else "user",
                               parts=[types.Part(text=h["content"])]) for h in history]
     contents.append(types.Content(role="user", parts=[types.Part(text=question)]))
