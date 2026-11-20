@@ -25,9 +25,10 @@ MEASURES = {
                          "plain": "expected dollars from mailing the household (chance it redeems x spend if it does)"},
     "uplift": {"column": "uplift", "models": (3,), "tool": "Campaign Uplift", "unit": "share", "total_as": "expected extra buyers",
                "plain": "extra chance the household buys the campaign's products because it was mailed"},
-    "buy_anyway": {"column": "buy_anyway", "models": (3,), "tool": "Campaign Uplift", "unit": "share",
-                   "total_as": "expected buyers without any mailer",
-                   "plain": "chance the household buys the campaign's products without a mailer"},
+    "buy_anyway": {"column": "buy_anyway", "models": (3,), "tool": "Sure-things classifier", "unit": "share",
+                   "total_as": "expected households that would buy without redeeming",
+                   "plain": "chance the household buys the campaign's products without using the coupon (a sure thing: "
+                            "mailing it is a likely wasted send)"},
 }
 
 # Only homeowner status and kids have readable values. The dataset's own guide says the five classification
@@ -151,7 +152,7 @@ class Lab:
         else:
             rows = rows[rows["campaign"] == campaign]
             steps.append(f"Looked at campaign {campaign}.")
-        if measure and MEASURES[measure]["column"] in ("p_redeem", "spend_if_redeem", "expected_revenue"):
+        if measure and MEASURES[measure]["column"] in ("p_redeem", "spend_if_redeem", "expected_revenue", "buy_anyway"):
             steps.append("Used mailed households only (the only ones these scores exist for).")
         for f in filters or []:
             rows = rows[rows[TRAITS[f["trait"]]["column"]].isin(f["values"])]
@@ -239,7 +240,7 @@ class Lab:
             numbers["what actually happened in this campaign"] = (
                 f"this list would have reached {reached} of the {total} households that really redeemed; "
                 f"mailing {n} at random would have reached about {total * n / n_all:.1f}")
-        if measure in ("uplift", "buy_anyway"):
+        if measure == "uplift":
             steps.append("Included households that weren't mailed, since the question is who to mail.")
         list_cols = ["household_key", "campaign", m["column"]]
         numbers["first households in the list"] = [

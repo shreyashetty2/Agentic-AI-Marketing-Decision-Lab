@@ -12,7 +12,9 @@ Run from the repo folder:
     python src/modeling/model3_sure_things.py --processed data/processed
 
 Input : data/processed/model3_table.parquet (from src/features/build_2b.py), treated rows only
-Output: prints results to the console and writes data/processed/model3_sure_things_report.md
+Output: prints results to the console and writes data/processed/model3_sure_things_report.md, plus
+        model3_sure_things.json (summary numbers) and model3_sure_things_households.parquet (one row per
+        mailed household in the held-out test campaigns: its predicted chance of being a sure thing)
 """
 import argparse
 import json
@@ -72,9 +74,16 @@ def train_and_evaluate(table: pd.DataFrame) -> dict:
 
     importances = pd.Series(model.feature_importances_, index=FEATURES).sort_values(ascending=False)
 
+    # Per-household predictions, held-out campaigns only: these households were never in training, so the
+    # score is a fair out-of-time prediction. Training rows are left out on purpose (the model has seen
+    # their answers, so their scores would look better than they are).
+    households = ranked[["household_key", "campaign"]].assign(
+        p_sure_thing=ranked["predicted"].to_numpy(),
+        actually_bought_without_redeeming=ranked[WITHOUT_REDEMPTION].to_numpy()).reset_index(drop=True)
+
     return {
         "n_train": len(train_t), "n_test": len(test_t), "auc": auc,
-        "capture": capture, "importances": importances, "model": model,
+        "capture": capture, "importances": importances, "model": model, "households": households,
     }
 
 
@@ -147,7 +156,11 @@ def main() -> None:
         "top_features": result["importances"].head(5).round(4).to_dict(),
     }, indent=2))
 
+    households_path = args.processed / "model3_sure_things_households.parquet"
+    result["households"].to_parquet(households_path, index=False)
+
     print(f"\nReport: {report_path}")
+    print(f"Per-household predictions: {households_path} ({len(result['households']):,} rows)")
     print(f"Facts: {facts_path}")
 
 
