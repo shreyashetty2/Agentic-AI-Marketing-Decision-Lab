@@ -16,10 +16,12 @@ col_title.title("Ask the Decision Lab")
 
 st.caption(
     "Ask about who to target, which segments respond best, what to expect to spend, how confident a "
-    "result is, or about a specific household (e.g. \"what about household 323?\"). Answers are "
-    "grounded only in numbers the Modeling and Evaluation Agents already computed for Redemption "
-    "Likelihood, Spend Forecast, and Campaign Uplift (plus sure things) -- it will say so rather than "
-    "guess at anything it wasn't given."
+    "result is, about a specific household (e.g. \"what about household 323?\"), a specific campaign's "
+    "duration and type, or how to plan a new campaign by comparing it to similar past ones (e.g. \"who "
+    "should we target for a new Type A campaign?\"). Answers are grounded only in numbers the Modeling "
+    "and Evaluation Agents already computed for Redemption Likelihood, Spend Forecast, and Campaign "
+    "Uplift (plus sure things) -- it will say so rather than guess at anything it wasn't given. (Note: "
+    "this data has no real calendar dates, so it can't say what month or season is best to mail.)"
 )
 
 if not credentials_ok():
@@ -49,8 +51,9 @@ for i, turn in enumerate(st.session_state.chat_history):
 
 examples = [
     "Which households should we target for the most uplift from mailing?",
-    "How much should we expect a mailed household to spend?",
-    "Which population segment redeems the most?",
+    "What percent of coupons actually get redeemed?",
+    "Which products do people buy without using the coupon?",
+    "What does campaign Type A mean?",
 ]
 if not st.session_state.chat_history:
     st.caption("Try asking:")

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Cloud Run Service entrypoint for the Decision Lab interface (app/streamlit_app.py).
+# Cloud Run Service entrypoint for the Decision Lab interface (app/Overview.py).
 #
 # The app only ever reads data/processed (never raw data -- see app/lib/data.py), so this syncs just
 # that down from the same GCS bucket the Lead Agent engine writes to, then starts Streamlit. No sync
@@ -22,7 +22,7 @@ echo "Syncing processed data down from ${GCS_BUCKET}..."
 python scripts/sync_processed.py "${GCS_BUCKET}"
 
 echo "Starting the Decision Lab on port ${PORT:-8080}..."
-exec streamlit run app/streamlit_app.py \
+exec streamlit run app/Overview.py \
     --server.port="${PORT:-8080}" \
     --server.address=0.0.0.0 \
     --server.headless=true
