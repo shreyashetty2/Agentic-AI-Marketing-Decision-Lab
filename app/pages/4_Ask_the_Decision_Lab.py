@@ -51,8 +51,9 @@ for i, turn in enumerate(st.session_state.chat_history):
 
 examples = [
     "Which households should we target for the most uplift from mailing?",
-    "How much should we expect a mailed household to spend?",
-    "Which population segment redeems the most?",
+    "What percent of coupons actually get redeemed?",
+    "Which products do people buy without using the coupon?",
+    "What does campaign Type A mean?",
 ]
 if not st.session_state.chat_history:
     st.caption("Try asking:")
