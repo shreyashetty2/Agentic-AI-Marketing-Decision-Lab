@@ -9,7 +9,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib.data import MODEL_BLURBS, MODEL_NAMES, load_run_summary, step  # noqa: E402
-from lib.style import inject, status_badge  # noqa: E402
+from lib.style import explainer, inject, status_badge  # noqa: E402
 
 st.set_page_config(page_title="Decision Lab", page_icon=":bar_chart:", layout="wide")
 inject()
@@ -17,6 +17,7 @@ inject()
 summary = load_run_summary()
 
 st.title("Decision Lab")
+explainer("overview")
 st.caption(f"Last run: {summary['run_at']} — status: **{summary['status']}**"
            + (f" ({summary['stopped_because']})" if summary.get("stopped_because") else ""))
 

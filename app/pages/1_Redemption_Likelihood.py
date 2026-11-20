@@ -7,11 +7,12 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from lib.charts import population_breakdown, score_histogram  # noqa: E402
 from lib.data import load_predictions, load_run_summary, step, with_demographics  # noqa: E402
-from lib.style import inject  # noqa: E402
+from lib.style import explainer, inject  # noqa: E402
 
 st.set_page_config(page_title="Redemption Likelihood", layout="wide")
 inject()
 st.title("Redemption Likelihood")
+explainer(1)
 
 summary = load_run_summary()
 modeling, evaluation = step(summary, "modeling", 1), step(summary, "evaluation", 1)
