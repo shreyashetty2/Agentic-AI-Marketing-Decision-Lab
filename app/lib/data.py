@@ -47,6 +47,12 @@ def load_predictions(model: int) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=60)
+def load_model_table(model: int) -> pd.DataFrame:
+    """The Feature Agent's table for one model (the household x campaign columns the model learns from)."""
+    return pd.read_parquet(PROCESSED / f"model{model}_table.parquet")
+
+
+@st.cache_data(ttl=60)
 def load_demographics() -> pd.DataFrame:
     return pd.read_parquet(PROCESSED / "hh_demographic.parquet")
 

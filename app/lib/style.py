@@ -71,11 +71,15 @@ _EXPLAINERS = {
         "page never calculates anything itself."),
     1: (
         "**What this answers:** will a mailed household use the coupon?\n\n"
-        "**How to read it:** every household gets a score from 0 to 1. Higher means more likely to redeem. "
-        "The list shows the most likely households first, and the chart shows how scores are spread out.\n\n"
-        "**Segments:** the bottom section averages the score for groups of households. Age Group runs "
-        "1 to 6 in order, but the real ages were removed from this anonymised data, so we cannot say "
-        "which end is older.\n\n"
+        "**How to read it:** every household gets a chance of redeeming, from 0% to 100%. Pick a campaign "
+        "and how much of its list to mail. The page shows how many households that is, how many "
+        "redemptions to expect (with a likely range), and who is on the list.\n\n"
+        "**Did it work?** These campaigns are finished, so the page also shows how many of the real "
+        "redeemers that list would have reached, next to the simple rule of mailing whoever redeemed "
+        "before, and mailing at random.\n\n"
+        "**Who the list leaves out:** compares each group's share of the list with its share of everyone "
+        "mailed. Age Group runs 1 to 6 in order, but the real ages were removed from this anonymised "
+        "data, so we cannot say which end is older.\n\n"
         "**What drives it:** past coupon use and shopping habits, not demographics."),
     2: (
         "**What this answers:** if a household is mailed, about how many dollars will it spend on the "
