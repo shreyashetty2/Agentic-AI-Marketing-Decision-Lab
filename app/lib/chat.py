@@ -95,9 +95,9 @@ avoid), add one short clause saying that tool's verdict is "human needed" and wh
 recommendation is never presented as proven.
 - Product-by-product results DO exist (see the product facts below): never say a product breakdown is not \
 computed; give the matching products, and say Type A campaign products are only an illustration.
-- Length: lead with the direct answer in the first sentence, then at most a few short lines of support. Roughly \
-120 words unless the question asks for a list or a comparison. Do not dump every caveat; give the one that \
-matters most for the question.
+- Length: lead with the direct answer in the first sentence, then at most a few short lines of support. Hard cap of \
+130 words unless the question explicitly asks for a list, a comparison, or an explanation of a whole tool. \
+Do not dump every caveat or every number; give the two or three that matter most for this question.
 """
 
 
@@ -342,39 +342,74 @@ def cached_context() -> str:
 
 
 def _household_lookup(question: str) -> str:
-    """If the question names a specific household (e.g. "household 323"), pull its actual rows from
-    all three models' predictions -- the top-10 lists in build_context() won't cover most IDs, so
-    without this the model would have to say "not available" for almost any specific household asked
-    about. Still grounded: only real rows, nothing computed here."""
-    match = HOUSEHOLD_RE.search(question)
-    if not match:
+    """If the question names specific households (e.g. "household 323", or two to compare), pull each
+    one's actual rows from all three models' predictions plus its demographics -- the top-10 lists in
+    build_context() won't cover most IDs, so without this the model would have to say "not available"
+    for almost any specific household asked about. Still grounded: only real rows, nothing computed here."""
+    keys = list(dict.fromkeys(int(m.group(1)) for m in HOUSEHOLD_RE.finditer(question)))[:3]
+    keys += [int(k) for k in re.findall(r"\b(?:and|vs\.?|versus|&)\s+(\d{1,4})\b", question) if keys][:2]
+    keys = list(dict.fromkeys(keys))[:3]
+    if not keys:
         return ""
-    key = int(match.group(1))
-    lines = [f"Specific household requested in this message: household {key}."]
-    found = False
-    for model, label, fmt in ((1, "redemption-likelihood score", "{:.4f}"),
-                              (2, "forecast spend", "${:.2f}"), (3, "uplift score", "{:.4f}")):
-        rows = load_predictions(model)
-        rows = rows[rows["household_key"] == key]
-        if rows.empty:
+    demo_all = load_demographics()
+    blocks = []
+    for key in keys:
+        lines = [f"Specific household requested in this message: household {key}."]
+        found = False
+        for model, label, fmt in ((1, "redemption-likelihood score", "{:.4f}"),
+                                  (2, "forecast spend", "${:.2f}"), (3, "uplift score", "{:.4f}")):
+            rows = load_predictions(model)
+            rows = rows[rows["household_key"] == key]
+            if rows.empty:
+                continue
+            found = True
+            lines.append(f"{MODEL_NAMES[model]} ({label}): " + "; ".join(
+                f"campaign {r.campaign}: {fmt.format(r.score)}" for r in rows.itertuples()))
+        demo = demo_all[demo_all["household_key"] == key]
+        if not demo.empty:
+            r = demo.iloc[0]
+            lines.append(f"Demographics on file: age group {r['classification_1']} (ordered; exact ages unknown), "
+                         f"household size {r['classification_4']}, homeowner status {r['homeowner_desc']}, "
+                         f"kids: {r['kid_category_desc']}.")
+            found = True
+        else:
+            lines.append("No demographic record on file for this household.")
+        if not found:
+            lines.append("No record of this household in any model's mailed households -- say so plainly, "
+                          "don't guess at a score.")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
+def _campaign_households_lookup(question: str) -> str:
+    """If the question names a campaign (e.g. "who should we target in campaign 17"), pull that campaign's
+    type/duration and its top-ranked households under each tool, straight from the predictions already
+    computed. Only campaigns a tool actually scored appear; a Type A campaign has none for some tools,
+    and the model must say so rather than guess."""
+    keys = list(dict.fromkeys(int(m.group(1)) for m in CAMPAIGN_RE.finditer(question)))[:3]
+    if not keys:
+        return ""
+    desc = load_campaign_desc().set_index("campaign")
+    blocks = []
+    for key in keys:
+        if key not in desc.index:
+            blocks.append(f"Campaign {key}: no such campaign in this dataset (campaigns run 1 to 30).")
             continue
-        found = True
-        lines.append(f"{MODEL_NAMES[model]} ({label}): " + "; ".join(
-            f"campaign {r.campaign}: {fmt.format(r.score)}" for r in rows.itertuples()))
-    demo = load_demographics()
-    demo = demo[demo["household_key"] == key]
-    if not demo.empty:
-        r = demo.iloc[0]
-        lines.append(f"Demographics on file: age group {r['classification_1']} (ordered; exact ages unknown), "
-                     f"household size {r['classification_4']}, homeowner status {r['homeowner_desc']}, "
-                     f"kids: {r['kid_category_desc']}.")
-        found = True
-    else:
-        lines.append("No demographic record on file for this household.")
-    if not found:
-        lines.append("No record of this household in any model's mailed households -- say so plainly, "
-                      "don't guess at a score.")
-    return "\n".join(lines)
+        lines = [f"Campaign {key}: Type {desc.loc[key, 'campaign_type']}, runs {desc.loc[key, 'duration_days']} days."]
+        for model, label, fmt in ((1, "redemption-likelihood", "{:.3f}"), (2, "forecast spend", "${:.2f}"),
+                                  (3, "uplift", "{:.3f}")):
+            rows = load_predictions(model)
+            rows = rows[rows["campaign"] == key]
+            name = MODEL_NAMES[model]
+            if rows.empty:
+                lines.append(f"{name}: this tool did not score campaign {key} (say so, do not guess).")
+                continue
+            top = rows.nlargest(5, "score")
+            lines.append(f"{name} for campaign {key}: {len(rows)} households scored, average {label} "
+                         f"{fmt.format(rows['score'].mean())}; top 5 households: " + "; ".join(
+                             f"{r.household_key} ({fmt.format(r.score)})" for r in top.itertuples()))
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
 
 
 _STOP = {"what", "which", "products", "product", "about", "does", "that", "with", "have", "this", "from",
@@ -414,10 +449,13 @@ def _campaign_product_lookup(question: str) -> str:
     its coupons actually covered -- the campaign calendar in build_context() has every campaign's type
     and duration, but listing every campaign's full product list there would be huge, so this is a
     lookup instead, same pattern as _household_lookup."""
-    match = CAMPAIGN_RE.search(question)
-    if not match:
+    keys = list(dict.fromkeys(int(m.group(1)) for m in CAMPAIGN_RE.finditer(question)))[:3]
+    if not keys:
         return ""
-    key = int(match.group(1))
+    return "\n".join(_one_campaign_products(k) for k in keys)
+
+
+def _one_campaign_products(key: int) -> str:
     products = load_campaign_products()
     rows = products[products["campaign"] == key]
     if rows.empty:
@@ -458,6 +496,9 @@ def ask(history: list[dict], question: str) -> tuple[str, str]:
     household = _household_lookup(question)
     if household:
         context = f"{context}\n\n{household}"
+    campaign_rows = _campaign_households_lookup(question)
+    if campaign_rows:
+        context = f"{context}\n\n{campaign_rows}"
     products = _campaign_product_lookup(question)
     if products:
         context = f"{context}\n\n{products}"
