@@ -102,6 +102,19 @@ def category_redemptions(processed: Path) -> pd.DataFrame:
     return out.rename(columns={"COMMODITY_DESC": "category"})
 
 
+def sure_things(processed: Path = PROCESSED) -> pd.DataFrame:
+    """Each mailed household's predicted chance of buying the campaign's products without redeeming the coupon
+    (the sure-things classifier, src/modeling/model3_sure_things.py). Held-out campaigns only; blank everywhere
+    else, and blank everywhere if that script hasn't been run. The uplift model in use doesn't produce a
+    'would buy anyway' chance of its own, so this is the Lab's one source for it."""
+    path = processed / "model3_sure_things_households.parquet"
+    if not path.exists():
+        return pd.DataFrame({"household_key": pd.Series(dtype="int64"), "campaign": pd.Series(dtype="int64"),
+                             "buy_anyway": pd.Series(dtype="float64")})
+    df = pd.read_parquet(path)
+    return df.rename(columns={"p_sure_thing": "buy_anyway"})[[*KEY, "buy_anyway"]]
+
+
 def build(processed: Path = PROCESSED, modeling_dir: Path | None = None) -> pd.DataFrame:
     """The table. Rows: every household-campaign any model scores. A score is blank where its model doesn't
     cover that household or campaign -- Redemption Likelihood and Spend Forecast score mailed households only;
@@ -110,8 +123,8 @@ def build(processed: Path = PROCESSED, modeling_dir: Path | None = None) -> pd.D
     m1 = in_use_rows(1, modeling_dir)
     m1 = m1.assign(spend_if_redeem=spend_if_redeem(m1, processed, modeling_dir))
     m1 = m1[[*KEY, "label", "score", "spend_if_redeem"]].rename(columns={"label": "redeemed", "score": "p_redeem"})
-    m3 = in_use_rows(3, modeling_dir)[[*KEY, "treatment", "label", "score", "p_control"]]
-    m3 = m3.rename(columns={"treatment": "mailed", "label": "bought", "score": "uplift", "p_control": "buy_anyway"})
+    m3 = in_use_rows(3, modeling_dir)[[*KEY, "treatment", "label", "score"]]
+    m3 = m3.rename(columns={"treatment": "mailed", "label": "bought", "score": "uplift"})
 
     table = m3.merge(m1, on=KEY, how="outer", validate="one_to_one", indicator=True)
     if ((table["_merge"] == "both") & (table["mailed"] != 1)).any():
@@ -119,6 +132,7 @@ def build(processed: Path = PROCESSED, modeling_dir: Path | None = None) -> pd.D
     table["mailed"] = table["mailed"].fillna(1).astype(bool)   # Model 1-only rows are mailed households
     table = table.drop(columns="_merge")
     table["expected_revenue"] = table["p_redeem"] * table["spend_if_redeem"]
+    table = table.merge(sure_things(processed), on=KEY, how="left", validate="one_to_one")
 
     table = table.merge(campaigns(processed), on="campaign", how="left", validate="many_to_one")
     demo = pd.read_parquet(processed / "hh_demographic.parquet")
