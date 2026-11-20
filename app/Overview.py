@@ -1,6 +1,6 @@
 """Decision Lab: a marketer-facing view of the Lead Agent's latest run. Reads only
 data/processed/lead_agent/run_summary.json and the agents' own output files -- never computes a number
-itself. Run from the repo root: streamlit run app/streamlit_app.py
+itself. Run from the repo root: streamlit run app/Overview.py
 """
 import sys
 from pathlib import Path
