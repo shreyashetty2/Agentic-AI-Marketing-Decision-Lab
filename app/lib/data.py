@@ -3,11 +3,15 @@ never recomputes a number itself (same rule the lead-agent skill follows)."""
 from pathlib import Path
 
 import json
+import sys
+
 import pandas as pd
 import streamlit as st
 
 ROOT = Path(__file__).resolve().parents[2]
 PROCESSED = ROOT / "data/processed"
+sys.path.insert(0, str(ROOT / "src"))   # the Lab's engine (src/decision) and the models it loads (src/modeling)
+from decision.table import in_use_rows  # noqa: E402
 
 MODEL_NAMES = {
     1: "Redemption Likelihood",
@@ -36,11 +40,10 @@ def step(summary: dict, name: str, model: int) -> dict | None:
 
 @st.cache_data(ttl=60)
 def load_predictions(model: int) -> pd.DataFrame:
-    """One row per household x campaign, kept to the candidate actually used for scoring (falls back to
-    the owner's own default when no candidate has been chosen yet)."""
-    df = pd.read_parquet(PROCESSED / f"modeling_agent/model{model}/predictions.parquet")
-    chosen = df[df["chosen"]] if "chosen" in df.columns and df["chosen"].any() else df[df["is_default"]]
-    return chosen.drop_duplicates(["household_key", "campaign"])
+    """One row per household x campaign, from the model in use only -- the rows marked is_default, which the
+    Modeling Agent sets from the owner's default or src/lead/models_in_use.yaml. Not `chosen`: that marks the
+    agent's per-campaign experimental pick, which mixed seven different models across Model 1's 13 campaigns."""
+    return in_use_rows(model, PROCESSED / "modeling_agent")
 
 
 @st.cache_data(ttl=60)
