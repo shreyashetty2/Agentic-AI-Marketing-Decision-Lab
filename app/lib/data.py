@@ -112,6 +112,35 @@ def load_product_redemption_summary() -> pd.DataFrame:
     return pd.read_csv(PROCESSED / "model3_product_redemption_summary.csv")
 
 
+@st.cache_data(ttl=60)
+def load_dataset_facts() -> dict:
+    """Real, countable facts about the mailing data itself (not a model output): how many households
+    were ever mailed, and how many mailings were actually redeemed, overall and by campaign Type. Read
+    straight from campaign_table (who was mailed which campaign) and coupon_redempt (who redeemed),
+    both small files; a mailing counts as redeemed if that household redeemed any coupon in that
+    campaign. Matches the 889 of 7,208 (about 1 in 8) the team already reports."""
+    mailed = pd.read_parquet(PROCESSED / "campaign_table.parquet")
+    redeemed = pd.read_parquet(PROCESSED / "coupon_redempt.parquet")[["household_key", "CAMPAIGN"]].drop_duplicates()
+    redeemed = redeemed.assign(redeemed=1)
+    m = mailed.merge(redeemed, on=["household_key", "CAMPAIGN"], how="left").fillna({"redeemed": 0})
+    m["campaign_type"] = m["DESCRIPTION"].str.removeprefix("Type")
+    by_type = m.groupby("campaign_type")["redeemed"].agg(["sum", "count"])
+    return {
+        "mailings": int(len(m)), "households_mailed": int(m["household_key"].nunique()),
+        "campaigns": int(m["CAMPAIGN"].nunique()), "redeemed": int(m["redeemed"].sum()),
+        "by_type": {t: (int(r["sum"]), int(r["count"])) for t, r in by_type.iterrows()},
+    }
+
+
+@st.cache_data
+def load_type_a_product_example() -> pd.DataFrame:
+    """The team's own product drill-down for campaign 8 (src/modeling/model3_product_lookup.py
+    --campaign 8), top 15 products by purchase volume, saved as a small reference file because the
+    drill-down itself needs the 2.6M-row transaction table, which the hosted app never loads. Campaign
+    8 is Type A, so these per-product results are an illustration, not individually reliable."""
+    return pd.read_csv(Path(__file__).resolve().parent / "ref" / "campaign8_product_example.csv")
+
+
 # Exact wording from src/features/feature_2a_spec.yaml -- the team anonymised and deliberately did not
 # claim what classification_2/3/4/5 represent (e.g. never assumed classification_3 means income), so
 # this page doesn't either.
