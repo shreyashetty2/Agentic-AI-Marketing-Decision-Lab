@@ -20,6 +20,10 @@ If an answer ever drifts from these, treat it as a bug.
 | What about household 323? | Its uplift scores across 11 campaigns (highest 0.9066 in campaign 17), demographics if on file, and the verdict caveat. |
 | Which segment should we avoid mailing? | Lowest uplift groups with the "human needed" caveat, and the sure things tool. |
 
+| Who should we target in campaign 17? | Top households by uplift (323, 373, 783), campaign Type and length, and the "human needed" caveat. |
+| Compare campaign 17 and campaign 8 | Type B (32 days, 15 categories) vs Type A (48 days, broad pool). Uplift and Spend Forecast did not score campaign 8. |
+| Compare household 323 and household 373 | Both peak in campaign 17 (0.9066 vs 0.9020). No demographics on file for either. |
+
 ## Honest "not available" answers
 | Question | Should say |
 |---|---|
