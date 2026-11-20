@@ -18,7 +18,8 @@ design:
   - q: "If I mail 1,000 households in campaign 12, which segments give the best uplift?"
     form: {tool: answer, measure: uplift, campaign: 12}
   - q: "What response rate would I get if I targeted homeowners?"
-    form: {tool: answer, how: summary, measure: redemption_chance}
+    form: {tool: answer, measure: redemption_chance}   # one number for homeowners, or homeowners in a breakdown
+    says: ["homeowner"]
   - q: "Which homeowner group is most likely to redeem?"
     form: {tool: answer, how: by_segment, measure: redemption_chance, segment_by: homeowner}
   - q: "Give me a file of the 100 households to mail for campaign 10."

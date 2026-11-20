@@ -331,7 +331,35 @@ Step 2B writes `data/processed/model{1,2,3}_table.parquet` and `feature_2b_repor
 
 Each `model{n}_baseline.py` trains on the earliest 70% of campaigns (by `start_day`), tests on the rest, and writes `model{n}_baseline_report.md` next to the tables. All three use the same features and model settings; each is compared against the baseline in the [evaluation table](#system-flow--architecture) — Model 1 against the "redeemed before" rule (redeemers caught in the top 20%), Model 2 against usual spend (average dollar error), Model 3 against random targeting.
 
-*(Commands for the later steps and the API/UI will be added as components are built.)*
+### Run the Decision Lab
+
+The app's numbers come from `data/processed/`, which isn't in git. Two people get the same answers only when they read the same data. So for a demo, use the hosted app, where everyone reads one copy. Run it on your laptop to develop or test.
+
+**Hosted:** the `decision-lab` Cloud Run service (us-east1), behind Google sign-in. Ask Shreya to add your Google account.
+
+**On your laptop:**
+
+```bash
+# 1. Bring data/processed up to date: the agents' latest outputs, plus the product summary the chat quotes
+python src/lead/engine.py --model all
+python src/modeling/model3_product_lookup.py
+#    (or copy the team's copy, if you have access: python scripts/sync_processed.py gs://capstone-decision-lab-data)
+
+# 2. Sign in to Google once, so the chat can call Gemini
+gcloud auth application-default login
+
+# 3. Use a Google Cloud project you're allowed to bill (your own course credit), with Vertex AI turned on
+gcloud services enable aiplatform.googleapis.com --project YOUR_PROJECT_ID
+export GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID
+
+# 4. Run it
+streamlit run app/Overview.py
+
+# 5. Check the chat gives the expected answers: 33 questions, a few cents
+python scripts/eval_decision_lab.py
+```
+
+The numbers in an answer are computed by code, so the same question on the same data always gives the same numbers. The wording comes from Gemini and can change a little between runs. How the chat works is in `docs/agent_design/decision_lab_design.md`.
 
 ---
 

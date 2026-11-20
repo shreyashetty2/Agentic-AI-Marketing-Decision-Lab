@@ -210,8 +210,9 @@ def prepare_table(model_id: int, mcfg: dict, spec: dict, processed: Path, passed
     roles, reasons, d = column_roles(spec_2a), blank_reasons(spec_2a), spec["defaults"]
     cands = resolve_candidates(model_id, mcfg)
     if proposals:
+        approved = [p for p in proposals if p.get("approved")]
+        check(bool(approved), f"model {model_id}: {len(approved)} approved proposal(s)", passed)
         extra = approved_candidates(proposals, proposal_context(mcfg, spec, table, cands, roles, reasons))
-        check(bool(extra), f"model {model_id}: {len(extra)} approved proposal(s) to test", passed)
         cands = {**cands, **extra}
     used = validate_inputs(model_id, cands, roles, d, treatment, passed)
     agent_cols = sorted({f for c in cands.values() if c["source"] != "owner" for f in c["features"]} - set(d["derived_inputs"]))
