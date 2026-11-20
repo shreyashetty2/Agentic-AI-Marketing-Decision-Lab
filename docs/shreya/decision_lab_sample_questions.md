@@ -20,6 +20,7 @@ If an answer ever drifts from these, treat it as a bug.
 | What about household 323? | Its uplift by campaign (about 21% in campaign 20, 10.5% in campaign 17), no demographics on file, never mailed, and the verdict caveat. |
 | Which segment should we avoid mailing? | Lowest uplift groups with the "human needed" caveat, and the sure things tool. |
 
+| Which households in campaign 17 would buy anyway, so we should not mail them? | Top 10 sure things with their chance of buying anyway (about 60 to 65%), from the sure-things classifier. Covers only the held-out campaigns 17, 19, 20 and 21. |
 | Who should we target in campaign 17 to get the most uplift? | Top 10 by uplift (1984, 2325, 208 lead, about 15%), how it was ranked, and the "human needed" caveat. Without "uplift" it asks which measure you want. |
 | Compare campaign 17 and campaign 8 | Type B (32 days, 15 categories) vs Type A (48 days, broad pool). Only Redemption Likelihood covers campaign 8. |
 | Compare household 323 and household 373 | Very similar uplift in every campaign (campaign 17: 10.5% vs 11.1%). No demographics, neither mailed. |
