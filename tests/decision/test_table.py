@@ -138,3 +138,16 @@ def test_cautions_cover_only_unapproved_models_in_plain_words(tmp_path):
                       "it scores +$0.50 (could be luck). Treat its numbers as a rough guide.")
     assert got[3] == ("Campaign Uplift hasn't been signed off by the team's checks yet: groups not comparable. "
                       "Treat its numbers as a rough guide.")
+
+
+def test_sure_things_are_blank_when_the_classifier_has_not_been_run(tmp_path):
+    out = T.sure_things(tmp_path)
+    assert out.empty and list(out.columns) == ["household_key", "campaign", "buy_anyway"]
+
+
+def test_sure_things_come_from_the_classifiers_per_household_file(tmp_path):
+    import pandas as pd
+    pd.DataFrame({"household_key": [1, 2], "campaign": [17, 17], "p_sure_thing": [0.9, 0.2],
+                  "actually_bought_without_redeeming": [1, 0]}).to_parquet(tmp_path / "model3_sure_things_households.parquet")
+    out = T.sure_things(tmp_path)
+    assert out["buy_anyway"].tolist() == [0.9, 0.2]
