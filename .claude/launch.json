@@ -4,7 +4,7 @@
     {
       "name": "decision-lab",
       "runtimeExecutable": ".venv/bin/streamlit",
-      "runtimeArgs": ["run", "app/streamlit_app.py", "--server.headless", "true"],
+      "runtimeArgs": ["run", "app/Overview.py", "--server.headless", "true"],
       "port": 8501
     }
   ]
