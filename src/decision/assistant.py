@@ -125,6 +125,9 @@ def run_turn(client, lab: Lab, history: list[dict], question: str, background: s
             types.FunctionDeclaration(name=t["name"], description=t["description"], parameters_json_schema=t["parameters"])
             for t in TOOLS])],
         automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+        # As repeatable as Gemini allows: whoever asks the same question -- a teammate presenting in someone's
+        # place -- should get the same route through the menu and, as near as possible, the same wording.
+        temperature=0,
         thinking_config=types.ThinkingConfig(thinking_level="low"))
     turn = Turn(answer="")
     for _ in range(MAX_CALLS + 1):
