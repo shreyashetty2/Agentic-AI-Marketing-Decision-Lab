@@ -88,9 +88,30 @@
 - **Per household:** expected revenue = P(redeem) (Model 1) × ($9.68 + 0.70 × usual spend).
 - **Where to get it:** `LinearUsualSpend().fit(table).predict(table)` in `src/modeling/model2_value.py`, or the Modeling Agent's default for Model 2.
 - **How much to trust it:**
-  - Use it for ranking households and for campaign totals, not for single-household dollar amounts. Typical error is about $10 per household on a median of $12.73.
+  - Use it for campaign totals, not for single-household dollar amounts or for choosing who to mail (Model 1 alone ranks as well; see "Check of the Decision Lab's expected revenue"). Typical error is about $10 per household on a median of $12.73.
   - For recent campaigns, totals may run about 5–25% low. Show a range rather than a point estimate.
 - **Scope:** TypeB/C only. TypeA has no Model 2 estimate yet (see open question 1).
+
+## Check of the Decision Lab's expected revenue (11/20)
+
+The Decision Lab (`src/decision/table.py`, #46) answers dollar questions with expected revenue = P(redeem) from Model 1 × spend if they redeem from Model 2. `src/modeling/check_expected_revenue.py` measures how close that number comes to what households actually spent. It does not change the Lab.
+
+- **Two versions of the number are scored:**
+  - **Fair version:** both models are trained only on campaigns that ended before each test campaign's cutoff, as the number would have looked when the campaign was planned.
+  - **As in the Lab:** the same P(redeem) × Model 2's line fit on all 254 rows. That fit includes campaigns that started after the test campaign.
+- **Scope:** 8 open TypeB/C campaigns (11, 12, 14, 15, 16, 17, 19, 20), 1,389 mailed households, 109 redeemers.
+  - Campaigns 9 and 10 are skipped because Model 2 has fewer than 60 training rows before them.
+  - The locked campaigns 21–25 were not read.
+- **Totals run high:** actual revenue is $1,513. The fair forecast is $1,859 (ratio 1.23), and the Lab's is $1,995 (1.32).
+  - In the fair version, most of the gap comes from Model 1: it forecasts 124.9 redemptions vs. 109 actual (1.15). Spend per redeemer is 1.07.
+  - The Lab's version is higher still because its line is learned partly from later campaigns, which spend more.
+  - Per campaign, the ratio ranges from about 0.6 to 6.5. The extreme case is campaign 11, which had only $31 of actual revenue. Campaign-level dollar answers therefore need a range.
+- **Ranking does not improve:** mailing the top 20% by expected revenue reaches 61.4% of actual revenue (60.4% as in the Lab), against 57.2% by P(redeem) alone. The fair gap is +4.3 points (95% range −4.6 to +7.1). Averaged over mailing depths 5–50%, all three are about 64%, and random is 27.5%.
+- **What this means for the Lab:**
+  - Choose who to mail with Model 1.
+  - Use expected revenue for the dollar size of a mailing list, said to run about 20–30% high, with a range.
+  - Model 2 adds the size of the dollars, not a better order.
+- **The line is flatter with less data:** fit only on earlier campaigns, it is about $9–11 + 0.53 × usual spend, against $9.68 + 0.70 × usual spend on all 254 rows. Later campaigns have a steeper relationship, which matches the under-prediction found on the held-back campaigns.
 
 ## Open questions
 
@@ -102,6 +123,7 @@
 ```bash
 python src/modeling/model2_value.py --processed data/processed        # the model in use + report
 python src/evaluation/agent.py --model 2                               # agent verdict (open campaigns)
+python src/modeling/check_expected_revenue.py --processed data/processed  # how accurate the Lab's expected revenue is
 python -m pytest tests/modeling -q
 ```
 

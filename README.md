@@ -301,6 +301,7 @@ python src/features/build_2b.py          # Step 2B, Feature Agent: one table per
 python src/modeling/model1_baseline.py   # Step 3, Modeling Agent: Model 1 (response) classifier baseline
 python src/modeling/model2_baseline.py   # Step 3, Modeling Agent: Model 2 (expected value) regressor baseline
 python src/modeling/model2_value.py      # Step 3, Modeling Agent: Model 2 (expected value) line on usual spend, model in use
+python src/modeling/check_expected_revenue.py  # check: how accurate the Decision Lab's expected revenue is (Model 1 x Model 2)
 python src/modeling/model3_baseline.py   # Step 3, Modeling Agent: Model 3 (uplift) T-learner, quick sanity check
 python src/modeling/model3_uplift.py     # Step 3, Modeling Agent: Model 3 (uplift) full model, primary build
 python src/modeling/model3_redemption_analysis.py  # Model 3 redemption-segmentation analysis
