@@ -1,7 +1,7 @@
 
 FROM python:3.12-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+RUN apt-get update && apt-get install -y --no-install-recommends curl libgomp1 && \
     curl -sSL https://sdk.cloud.google.com | bash -s -- --disable-prompts --install-dir=/opt && \
     rm -rf /var/lib/apt/lists/*
 ENV PATH="/opt/google-cloud-sdk/bin:${PATH}"
