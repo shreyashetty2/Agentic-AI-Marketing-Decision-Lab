@@ -41,8 +41,14 @@ each campaign's Type (A, B or C). If asked what month, season or time of year is
 dates to answer from; never guess a season. You CAN answer from campaign length (days) and Type.
 - Campaign Type has a real meaning (below). Always say what it means when it's relevant, never just "Type A".
 - A new or upcoming campaign that isn't in the data can't be scored. Answer by analogy to past campaigns of the \
-same Type -- who responded, and the department-level products typical of that Type -- and say it's an analogy, \
-not a prediction.
+same Type and say it's an analogy, not a prediction. When asked who to target for a new campaign, ALWAYS give \
+two short sections: "Who to target" (the groups with the highest redemption chance and uplift for that Type, and \
+the habits that predict response: past coupon use, past spend on the promoted products) and "Who to avoid" (the \
+groups with the lowest uplift or the highest chance of buying anyway, and the sure-thing habit of heavy past \
+spend on the same products). Use the "Who to target and avoid, by campaign Type" facts below, add one line on \
+the typical products for that Type, and mention that only about a third of households have demographics and \
+that Campaign Uplift's verdict is "human needed". If the gap between the best and worst group is only a few \
+points, say the differences are small and that household habits matter more than demographics.
 - Explain terms plainly every time they come up, using the glossary below; assume no earlier explanation was \
 read. Some demographic codes have no known meaning at all; if asked, say so and never guess.
 - When asked about "the model" behind a tool, name the actual algorithm and, if asked, its literal input \
@@ -202,6 +208,49 @@ def _campaign_type_facts(model: int, score_label: str, fmt: str = "{:.4f}") -> s
     return "\n".join(lines)
 
 
+_SEGMENT_TRAITS = (("homeowner_desc", "homeowner status"), ("kid_category_desc", "kids"),
+                   ("classification_1", "age group (ordered, real ages hidden)"))
+_SEGMENT_MEASURES = (("p_redeem", "chance of redeeming"), ("uplift", "uplift (extra chance of buying because mailed)"),
+                     ("buy_anyway", "chance of buying anyway (a sure thing, so mailing is wasted)"))
+_NO_INFO = {"None/Unknown", "Unknown", None}
+
+
+def _segments(rows, column: str, min_rows: int = 30) -> list[tuple[str, str, float, int]]:
+    out = []
+    for col, label in _SEGMENT_TRAITS:
+        known = rows[rows[col].notna() & ~rows[col].isin(_NO_INFO) & rows[column].notna()]
+        for value, g in known.groupby(col):
+            if len(g) >= min_rows:
+                out.append((label, str(value), float(g[column].mean()), len(g)))
+    return sorted(out, key=lambda t: -t[2])
+
+
+def _type_target_avoid_facts() -> str:
+    """For a new campaign of a given Type: which household groups did best and worst in past campaigns of that
+    Type, per measure. Groups under 30 household-campaign rows are left out. Only real averages from the
+    clean table; the model is told this is an analogy."""
+    table = lab().table
+    lines = ["Who to target and avoid, by campaign Type (averages over past campaigns of that Type; households "
+             "with a demographic record only; groups with fewer than 30 rows left out; use for a NEW campaign, "
+             "as an analogy):"]
+    for campaign_type, rows in table.groupby("campaign_type"):
+        n = rows["campaign"].nunique()
+        lines.append(f"- Type {campaign_type} ({n} past campaigns):")
+        for column, label in _SEGMENT_MEASURES:
+            segs = _segments(rows, column)
+            if len(segs) < 4:
+                lines.append(f"    {label}: not enough scored households of this Type to compare groups")
+                continue
+            fmt = lambda t: f"{t[0]} = {t[1]} ({t[2]:.1%}, {t[3]} rows)"
+            if len(segs) < 7:   # too few groups to split into highest and lowest without overlap
+                lines.append(f"    {label}, all groups, best first: " + "; ".join(fmt(t) for t in segs))
+            else:
+                lines.append(f"    {label}: highest " + "; ".join(fmt(t) for t in segs[:3])
+                             + " | lowest " + "; ".join(fmt(t) for t in segs[-3:]))
+            lines[-1] += f"  [gap between best and worst group: {(segs[0][2] - segs[-1][2]) * 100:.1f} points]"
+    return "\n".join(lines)
+
+
 def build_background() -> str:
     summary = load_run_summary()
     sure = load_sure_things()
@@ -217,7 +266,7 @@ def build_background() -> str:
         f"a {sure['base_rate']:.1%} base rate; trained on {sure['n_train']:,}, tested on {sure['n_test']:,} households.",
         "What it relies on most: " + ", ".join(f"{k} ({v:.0%})" for k, v in sure["top_features"].items()), "",
         _dataset_facts(), "", _campaign_calendar_facts(), "", _per_campaign_facts(), "", _type_product_facts(), "",
-        _wasted_products_facts(), "", _type_a_example_facts(),
+        _wasted_products_facts(), "", _type_a_example_facts(), "", _type_target_avoid_facts(),
     ])
 
 
