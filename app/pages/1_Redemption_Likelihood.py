@@ -33,6 +33,13 @@ explainer(1)
 
 summary = load_run_summary()
 modeling, evaluation = step(summary, "modeling", 1), step(summary, "evaluation", 1)
+if modeling is None or evaluation is None:
+    # The last Lead Agent run stopped before Model 1 was modeled and checked (e.g. an earlier step failed),
+    # so there is nothing trustworthy to show yet.
+    st.warning("Model 1 has no finished run to show yet. The last Lead Agent run stopped before Model 1 was "
+               "modeled and checked" + (f": {summary['stopped_because']}" if summary.get("stopped_because") else ".")
+               + "\n\nRun `python src/lead/engine.py --model all`, then reload this page.")
+    st.stop()
 facts = evaluation["facts"]
 
 with st.container(border=True):
